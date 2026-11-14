@@ -1,0 +1,19 @@
+{
+  "name": "defteri",
+  "version": "1.0.0",
+  "description": "Defteri - platformë kontabiliteti online (fatura, klientë, shpenzime, TVSH, raporte) me sistem rolesh owner/admin.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.8.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
