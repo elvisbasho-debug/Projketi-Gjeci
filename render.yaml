@@ -1,0 +1,28 @@
+# Konfigurim automatik për Render.com (vendosje me shfletues, pa terminal).
+# Render e lexon këtë skedar dhe e ndërton vetë aplikacionin nga Dockerfile.
+services:
+  - type: web
+    name: finbot
+    env: docker
+    plan: free            # falas për provë; për përdorim real zgjidh një plan me më shumë memorie
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/finbot.db
+      # Çelësat e sigurisë i gjeneron Render vetë (nuk i shkruan dot kush):
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CRED_KEY
+        generateValue: true
+      # Llogaritë fillestare — fjalëkalimet i vendos TI te paneli i Render:
+      - key: OWNER_EMAIL
+        value: owner@finbot.al
+      - key: OWNER_PASS
+        sync: false
+      - key: ADMIN_EMAIL
+        value: admin@finbot.al
+      - key: ADMIN_PASS
+        sync: false
