@@ -60,6 +60,21 @@ const EXEC_ST = { ne_radhe: ['Në radhë', 'b-draft'], ne_ekzekutim: ['Në ekzek
 const REC_ST = { ne_pritje: ['Në pritje', 'b-draft'], kryer: ['Kryer', 'b-paid'], deshtoi: ['Dështoi', 'b-overdue'], deklaruar: ['Deklaruar', 'b-paid'] };
 const badge = (map, st) => { const v = map[st] || [st, 'b-draft']; return `<span class="badge ${v[1]}">${v[0]}</span>`; };
 
+// Të dhënat e rekordeve (specifike për çdo shërbim)
+const DATA_LABELS = { tvsh_mujore: 'TVSH mujore', totali: 'Totali', kredi: 'Kredi', fatura: 'Fatura të mbledhura', detyrime: 'Detyrime gjithsej', te_ardhura: 'Të ardhura', shpenzime: 'Shpenzime', bilanci: 'Bilanci i transaksioneve', deklarata: 'Deklarata', dokumente: 'Dokumente', afati: 'Afati më i afërt', te_ardhura_shitja: 'Të ardhura nga shitja', fitimi_humbja: 'Fitimi neto / Humbja' };
+const PRIMARY_KEYS = ['totali', 'te_ardhura_shitja', 'detyrime', 'bilanci', 'fatura', 'deklarata', 'dokumente'];
+function primaryValue(data) {
+  if (!data) return '—';
+  for (const k of PRIMARY_KEYS) if (data[k] != null) return nf(data[k]);
+  const ks = Object.keys(data); for (const k of ks) if (typeof data[k] === 'number') return nf(data[k]);
+  return ks.length ? esc(String(data[ks[0]])) : '—';
+}
+function renderDataRows(data) {
+  const ks = Object.keys(data || {});
+  if (!ks.length) return '<tr><td class="muted" colspan="2">Pa të dhëna shtesë</td></tr>';
+  return ks.map(k => `<tr><td>${esc(DATA_LABELS[k] || k)}</td><td class="num">${typeof data[k] === 'number' ? nf(data[k]) : esc(String(data[k]))}</td></tr>`).join('');
+}
+
 /* ============ Icons ============ */
 const I = {
   dash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>',
@@ -271,18 +286,19 @@ async function viewServiceDetail(el, id) {
           ${can('accountant') ? `<button class="btn ghost" id="addSub">${I.plus} Shto subjekt</button>` : ''}
           <button class="btn ghost" id="exp">Eksporto</button>
           <button class="btn ghost" id="pdfAll">PDF</button>
+          <button class="btn ghost" id="zipAll">ZIP</button>
           <button class="btn ghost" id="refresh">Rifresko</button>
         </div>
       </div>
       <div class="card-body" style="padding:0">
         <table>
-          <thead><tr><th>#</th><th>Statusi subjektit</th><th>Emri</th><th>NIPT</th><th>Përditësuar</th><th>Rezultati</th><th class="num">TVSH/Totali</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Statusi subjektit</th><th>Emri</th><th>NIPT</th><th>Përditësuar</th><th>Rezultati</th><th class="num">Vlera kryesore</th><th></th></tr></thead>
           <tbody id="rows">${s.records.length ? s.records.map((r, i) => `<tr>
             <td class="muted">${i + 1}</td>
             <td><span class="badge ${r.subject_status === 'active' ? 'b-active' : 'b-cancelled'}">${r.subject_status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></td>
             <td><b>${esc(r.subject_name)}</b></td><td class="muted">${esc(r.nipt || '—')}</td>
             <td class="muted">${timeAgo(r.updated_at)}</td><td>${badge(REC_ST, r.status)}</td>
-            <td class="num">${r.data && r.data.totali != null ? nf(r.data.totali) : '—'}</td>
+            <td class="num">${primaryValue(r.data)}</td>
             <td class="num">
               ${can('accountant') ? `<button class="btn ghost sm" data-run="${r.subject_id}">${I.play}</button>` : ''}
               <button class="btn ghost sm" data-pdf="${r.subject_id}">PDF</button>
@@ -295,6 +311,7 @@ async function viewServiceDetail(el, id) {
   $('#refresh').onclick = () => viewServiceDetail(el, id);
   $('#exp').onclick = () => downloadFile('/services/' + id + '/export', 'sherbimi-' + id + '.csv');
   $('#pdfAll').onclick = () => downloadFile('/services/' + id + '/pdf', 'deklaratat.pdf');
+  $('#zipAll').onclick = () => downloadFile('/services/' + id + '/zip', 'deklaratat.zip');
   $$('[data-pdf]', el).forEach(b => b.onclick = () => downloadFile('/services/' + id + '/records/' + b.dataset.pdf + '/pdf', 'deklarate.pdf'));
   if ($('#runAll')) $('#runAll').onclick = async () => {
     if (!s.records.length) return toast('Shto subjekte fillimisht', true);
@@ -316,11 +333,14 @@ async function viewServiceDetail(el, id) {
         <div><div class="muted">Përditësuar</div>${timeAgo(r.updated_at)}</div>
         <div><div class="muted">Rezultati</div>${esc(r.result || '—')}</div>
       </div>
-      <table style="border:1px solid var(--border);border-radius:8px">
-        <tr><td>TVSH mujore</td><td class="num">${d.tvsh_mujore != null ? nf(d.tvsh_mujore) : '—'}</td></tr>
-        <tr><td>Totali</td><td class="num">${d.totali != null ? nf(d.totali) : '—'}</td></tr>
-        <tr><td>Kredi</td><td class="num">${d.kredi != null ? nf(d.kredi) : '—'}</td></tr>
-      </table>`, {});
+      <table style="border:1px solid var(--border);border-radius:8px">${renderDataRows(d)}</table>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        ${can('accountant') ? `<button class="btn" id="mrun">${I.play} Ekzekuto</button>` : ''}
+        <button class="btn ghost" id="mpdf">Shkarko PDF</button>
+      </div>`, {}).bg.addEventListener('click', ev => {
+        if (ev.target.id === 'mrun') { api.post('/services/' + s.id + '/run', { subject_ids: [r.subject_id] }).then(() => { toast('U fut në radhë'); location.hash = '#/automation'; }); }
+        if (ev.target.id === 'mpdf') { downloadFile('/services/' + s.id + '/records/' + r.subject_id + '/pdf', 'deklarate.pdf'); }
+      });
   });
 }
 

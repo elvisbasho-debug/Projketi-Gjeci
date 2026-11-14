@@ -2,6 +2,7 @@
 
 // Gjeneron PDF nga HTML duke përdorur Chromium (Playwright).
 const { chromium } = require('playwright');
+const archiver = require('archiver');
 
 async function htmlToPdf(html) {
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
@@ -89,4 +90,35 @@ function buildDeclarationDoc(company, service, records) {
   return `<!doctype html><html><head><meta charset="utf-8">${docStyle()}</head><body>${records.map(r => declarationPage(company, service, r)).join('')}</body></html>`;
 }
 
-module.exports = { htmlToPdf, buildDeclarationDoc };
+// Gjeneron një PDF për çdo rekord (një browser i vetëm) dhe i kthen si buffer-a.
+async function recordsToPdfBuffers(company, service, records) {
+  const browser = await chromium.launch({ args: ['--no-sandbox'] });
+  const out = [];
+  try {
+    const page = await browser.newPage();
+    for (const r of records) {
+      await page.setContent(buildDeclarationDoc(company, service, [r]), { waitUntil: 'load' });
+      const buf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '16mm', bottom: '16mm', left: '14mm', right: '14mm' } });
+      const safe = String(r.subject_name || 'subjekt').replace(/[^\w\-]+/g, '_');
+      out.push({ filename: `${safe}.pdf`, buffer: buf });
+    }
+  } finally {
+    await browser.close();
+  }
+  return out;
+}
+
+// Paketon disa buffer-a në një ZIP (kthen Buffer).
+function zipBuffers(files) {
+  return new Promise((resolve, reject) => {
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const chunks = [];
+    archive.on('data', c => chunks.push(c));
+    archive.on('end', () => resolve(Buffer.concat(chunks)));
+    archive.on('error', reject);
+    for (const f of files) archive.append(f.buffer, { name: f.filename });
+    archive.finalize();
+  });
+}
+
+module.exports = { htmlToPdf, buildDeclarationDoc, recordsToPdfBuffers, zipBuffers };

@@ -6,6 +6,7 @@
 const db = require('./db');
 const { hashPassword } = require('./auth');
 const { encrypt } = require('./crypto');
+const profiles = require('./profiles');
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@finbot.al';
 const OWNER_PASS = process.env.OWNER_PASS || 'Owner1234!';
@@ -51,13 +52,11 @@ if (db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
     const used = Math.min(subjects.length, rnd(2, subjects.length));
     for (let i = 0; i < used; i++) {
       const sub = subjects[i];
-      const ok = Math.random() > 0.15;
-      const status = ok ? 'kryer' : 'deshtoi';
-      const data = JSON.stringify({ tvsh_mujore: rnd(-300000, 100000), totali: rnd(-500000, 200000), kredi: rnd(0, 800000) });
-      insRec.run(svc.id, sub.id, status, ok ? 'Kryer' : 'Dështoi', data);
-      const ex = insExec.run(svc.id, sub.id, status, 1, rnd(0, 60000), rnd(8000, 20000), ok ? 'Kryer me sukses' : 'Gabim gjatë ekzekutimit', 'admin@finbot.al');
+      const sim = profiles.simulate(svc.code);
+      insRec.run(svc.id, sub.id, sim.status, sim.result, JSON.stringify(sim.data));
+      const ex = insExec.run(svc.id, sub.id, sim.ok ? 'kryer' : 'deshtoi', 1, rnd(0, 60000), rnd(8000, 20000), sim.result, 'admin@finbot.al');
       insLog.run(ex.lastInsertRowid, 'info', 'Nisi ekzekutimi i robotit.');
-      insLog.run(ex.lastInsertRowid, ok ? 'info' : 'error', ok ? 'Të dhënat u përpunuan me sukses.' : 'Dështoi lidhja me portalin.');
+      insLog.run(ex.lastInsertRowid, sim.ok ? 'info' : 'error', sim.ok ? 'Të dhënat u përpunuan me sukses.' : 'Dështoi lidhja me portalin.');
     }
     // përditëso kuotën
     db.prepare('UPDATE service_quotas SET used=? WHERE service_id=?').run(used, svc.id);

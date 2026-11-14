@@ -14,6 +14,7 @@
 
 const db = require('./db');
 const { decrypt } = require('./crypto');
+const profiles = require('./profiles');
 
 let robots = {};
 try { robots = require('./robots'); } catch (e) { robots = {}; }
@@ -28,18 +29,14 @@ function log(execId, level, msg) {
 
 // Konektori i parazgjedhur: i simuluar. Kthen sukses ~85% të rasteve.
 async function runRobotSimulated(service, subject) {
-  const wait = 3000 + Math.floor(Math.random() * 12000);
-  await new Promise(r => setTimeout(r, Math.min(wait, 6000))); // simulim i shkurtuar
-  const ok = Math.random() > 0.15;
-  const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
-  const data = { tvsh_mujore: rnd(-300000, 100000), totali: rnd(-500000, 200000), kredi: rnd(0, 800000) };
-  return {
-    ok,
-    process_ms: rnd(8000, 20000),
-    result: ok ? 'Kryer me sukses' : 'Dështoi — gabim gjatë lidhjes me portalin',
-    status: ok ? (service.category === 'Deklarim' ? 'deklaruar' : 'kryer') : 'deshtoi',
-    data,
-  };
+  const rnd = profiles.rnd;
+  await new Promise(r => setTimeout(r, 2000 + Math.random() * 4000)); // simulim i shkurtuar
+  // ~10% dështim i rastësishëm (lidhje/portal), përndryshe profili i shërbimit.
+  if (Math.random() < 0.1) {
+    return { ok: false, process_ms: rnd(8000, 20000), result: 'Dështoi — gabim gjatë lidhjes me portalin', status: 'deshtoi', data: {} };
+  }
+  const sim = profiles.simulate(service.code);
+  return { ok: sim.ok, process_ms: rnd(8000, 20000), result: sim.result, status: sim.ok ? sim.status : 'deshtoi', data: sim.data };
 }
 
 async function processOne(execId) {

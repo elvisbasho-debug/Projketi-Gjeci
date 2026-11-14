@@ -4,7 +4,7 @@ const express = require('express');
 const db = require('../db');
 const audit = require('../audit');
 const { requireRole } = require('../auth');
-const { htmlToPdf, buildDeclarationDoc } = require('../pdf');
+const { htmlToPdf, buildDeclarationDoc, recordsToPdfBuffers, zipBuffers } = require('../pdf');
 
 const router = express.Router();
 
@@ -123,6 +123,21 @@ router.get('/:id/pdf', requireRole('viewer'), async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${s.code}-deklaratat.pdf"`);
     res.send(pdf);
   } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
+});
+
+// ZIP me një PDF për çdo subjekt të shërbimit
+router.get('/:id/zip', requireRole('viewer'), async (req, res) => {
+  const s = db.prepare('SELECT * FROM services WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Shërbimi nuk u gjet' });
+  const recs = recordsForService(s.id);
+  if (!recs.length) return res.status(400).json({ error: 'Nuk ka rekorde për ZIP' });
+  try {
+    const files = await recordsToPdfBuffers(companyInfo(), s, recs);
+    const zip = await zipBuffers(files);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${s.code}-deklaratat.zip"`);
+    res.send(zip);
+  } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të ZIP: ' + e.message }); }
 });
 
 // PDF i një deklarate të vetme (subjekt × shërbim)

@@ -1,0 +1,22 @@
+services:
+  finbot:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_PATH: /data/finbot.db
+      JWT_SECRET: ${JWT_SECRET:?vendos JWT_SECRET ne .env}
+      CRED_KEY: ${CRED_KEY:?vendos CRED_KEY ne .env}
+      ROBOTS_REAL: ${ROBOTS_REAL:-0}
+      OWNER_EMAIL: ${OWNER_EMAIL:-owner@finbot.al}
+      OWNER_PASS: ${OWNER_PASS:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@finbot.al}
+      ADMIN_PASS: ${ADMIN_PASS:-}
+    volumes:
+      - finbot-data:/data
+    restart: unless-stopped
+
+volumes:
+  finbot-data:

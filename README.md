@@ -1,93 +1,114 @@
-# Finbot — Kontabilitet Online
+# Finbot — Platformë Kontabiliteti e Automatizuar
 
-Platformë kontabiliteti për biznese të vogla: fatura, klientë, produkte/shërbime,
-shpenzime, TVSH dhe raporte — me një sistem rolesh që përfshin një **pronar (owner)
-të fshehtë**.
+Platformë për **studiot/kontabilistët** që menaxhojnë shumë **subjekte** (tatimpagues)
+dhe ekzekutojnë **robotë (RPA)** për deklarime e kontrolle. Përfshin katalog shërbimesh
+me kuota, radhë automatizimi në kohë reale, ruajtje të enkriptuar të kredencialeve,
+asistent "Pyet VA", mbështetje me bileta dhe sistem rolesh me **pronar (owner) të fshehtë**.
 
-> Ky është një aplikacion i pavarur, origjinal. Nuk përmban marka, pamje apo kod të
-> kopjuar nga platforma të tjera; frymëzohet vetëm nga funksionaliteti standard i
-> kontabilitetit.
+> Aplikacion i pavarur, origjinal. Nuk përmban marka, pamje apo kod të kopjuar nga
+> platforma të tjera — frymëzohet vetëm nga funksionaliteti standard i kontabilitetit.
 
-## Çfarë bën
+## Funksionet
 
-- **Panel (Dashboard)** — të ardhura, shpenzime, fitim, TVSH, qarkullim 12-mujor.
-- **Fatura** — krijim me shumë artikuj, TVSH automatike, numër serial (`FAT-VITI-NNNN`),
-  statuse (draft / dërguar / paguar / vonuar / anuluar), printim.
-- **Klientë** — regjistër me NIPT, kontakte, kërkim.
-- **Produkte & Shërbime** — çmime dhe normë TVSH, të përdorshme në fatura.
-- **Shpenzime** — me TVSH të zbritshme.
-- **Raporte & TVSH** — deklaratë TVSH për periudhë (shitje – blerje).
-- **Përdorues & role** — menaxhim ekipi.
-- **Regjistri i veprimeve (audit)** — kush bëri çfarë e kur.
-- **Cilësimet** — të dhënat e kompanisë (emër, NIPT, monedhë, IBAN, TVSH default).
+- **Paneli** — shërbime të disponueshme/aktive, përdorimi mujor, subjekte, rekordet e fundit.
+- **Subjektet** — tatimpagues me NIPT dhe **fjalëkalim e-Albania/Self-Care të enkriptuar** (AES-GCM); kredencialet nuk kthehen kurrë në tekst. Import/Eksport CSV.
+- **11 Shërbime (robotë)** me kuota mujore: Mbledhje faturash, Deklarim TVSH, Detyrime realtime + Urdhërpagesa, Xhiro/shpenzime, Krahasim TVSH, Tatim në Burim (Qira), Listëpagesa (Esig-25), Deklaratë Doganore, Kontroll dokumentesh (C@ts), Deklarata të padeklaruara, PASH.
+- **Automatizimi** — radhë ekzekutimesh në kohë reale (Në radhë → Në ekzekutim → Kryer/Dështoi), riprovime, log-e, statistika, ndalim.
+- **Rekorde** për çdo subjekt×shërbim, me të dhëna specifike + eksport **CSV / PDF / ZIP**.
+- **Pyet VA** — asistent që përmbledh gjendjen e platformës.
+- **Njoftime**, **Mbështetje (bileta)**, **Cilësime**, **Përdorues & role**, **Regjistër veprimesh**.
 
 ## Sistemi i roleve
 
 | Roli | Të drejtat |
 |------|-----------|
-| **owner** (pronar) | Të drejta të plota. **I padukshëm** për të gjithë të tjerët. Vetëm owner-i krijon/heq admin dhe sheh regjistrin e plotë. |
-| **admin** | Të drejta të plota operative (përdorues, fatura, klientë, cilësime), **por nuk e di që owner-i ekziston** dhe nuk mund ta prekë. |
-| **accountant** (kontabilist) | Krijon/ndryshon fatura, klientë, produkte, shpenzime. Pa menaxhim përdoruesish. |
-| **viewer** (vëzhgues) | Vetëm lexim. |
+| **owner** (pronar) | Të drejta të plota. **I padukshëm** për të gjithë. Vetëm owner-i menaxhon admin dhe sheh regjistrin e plotë. |
+| **admin** | Të drejta të plota operative, **pa dijeni/akses te owner-i**. |
+| **accountant** | Subjekte, shërbime, ekzekutime, eksporte. Pa menaxhim përdoruesish. |
+| **viewer** | Vetëm lexim. |
 
-### Logjika e "owner-it të fshehtë"
-- Në çdo listë/kërkesë, llogaritë me rol `owner` **filtrohen** nëse kërkuesi s'është owner
-  (nuk shfaqen, nuk numërohen).
-- Nëse një admin provon të hapë/ndryshojë/fshijë një owner përmes ID-së, serveri përgjigjet
-  **"nuk ekziston"** (404) dhe e shënon tentativën në regjistër (`tentoi_akses_owner`).
-- Owner-i mund ta **pezullojë ose fshijë** admin-in në çdo moment ("abuzim besimi"); admin-i
-  i pezulluar nuk hyn dot.
-- Owner-i sheh në regjistër çdo veprim, përfshirë tentativat e admin-it.
+Owner-i mund ta **pezullojë/fshijë** admin-in; çdo tentativë e admin-it për owner-in shënohet në regjistër (`tentoi_akses_owner`).
 
-## Nisja
+## Robotët (RPA)
+
+Motori (`src/engine.js`) përpunon radhën e ekzekutimeve. Për çdo shërbim kontrollon
+nëse ka një **konektor real** te `src/robots/<kodi>.js`; nëse po, e thërret me
+kredencialet e **dekriptuara** të subjektit, përndryshe përdor **simulim** (profilet te `src/profiles.js`).
+
+- Si parazgjedhje konektorët janë joaktivë (simulim). Aktivizoji me `ROBOTS_REAL=1`.
+- Shembull funksional: `src/robots/tvsh_deklarim.js` hap një browser (Playwright), hyn në
+  një **portal demo** (`public/mock-portal.html`), lexon vlerat dhe përgatit deklarimin.
+
+### Lidhja me portalet reale
+Për deklarim **real** në e-Albania/Self-Care/C@ts/DIVA/Doganë, te konektori përkatës:
+1. vendos URL-në reale (`MOCK_PORTAL_URL` ose brenda modulit),
+2. përshtat selektorët (fushat e hyrjes, butonat, vlerat),
+3. shto hapat e deklarimit dhe trajtimin e OTP/captcha.
+
+> Ruajtja e fjalëkalimeve të klientëve dhe deklarimi në emër të tyre kanë **përgjegjësi
+> ligjore** dhe kërkojnë **autorizim** nga vetë subjektet.
+
+## Nisja (zhvillim)
 
 ```bash
 npm install
-npm run seed     # krijon owner-in, admin-in dhe pak të dhëna demo
+npm run seed     # krijon owner/admin dhe të dhëna demo
 npm start        # http://localhost:3000
 ```
 
-### Llogaritë fillestare (ndryshoji fjalëkalimet pas hyrjes)
+Llogaritë fillestare (ndryshoji pas hyrjes): `owner@finbot.al / Owner1234!` · `admin@finbot.al / Admin1234!`
 
-| Roli | Email | Fjalëkalimi |
-|------|-------|-------------|
-| Owner (i fshehtë) | `owner@finbot.al` | `Owner1234!` |
-| Admin | `admin@finbot.al` | `Admin1234!` |
+## Vendosja në prodhim (Docker)
 
-Mund t'i ndryshosh me variabla mjedisi para `npm run seed`:
-`OWNER_EMAIL`, `OWNER_PASS`, `ADMIN_EMAIL`, `ADMIN_PASS`.
+```bash
+cp .env.example .env
+# gjenero sekretet:
+node -e "console.log('JWT_SECRET='+require('crypto').randomBytes(48).toString('hex'))"
+node -e "console.log('CRED_KEY='+require('crypto').randomBytes(48).toString('hex'))"
+# plotëso .env (JWT_SECRET, CRED_KEY, OWNER_PASS, ADMIN_PASS)
 
-## Teknologjia
+docker compose up -d --build
+```
 
-- **Backend:** Node.js + Express + SQLite (`better-sqlite3`)
-- **Auth:** JWT (cookie httpOnly) + bcrypt
-- **Frontend:** HTML/CSS/JavaScript i pastër (SPA, pa framework)
-- Baza e të dhënave: skedar lokal `data.db` (krijohet automatikisht)
+- Baza ruhet në volumen `finbot-data` (`/data/finbot.db`).
+- Mbjellja bëhet automatikisht në nisjen e parë (kërkon `OWNER_PASS` në prodhim).
+- Health: `GET /api/health`.
+- Vendose pas një **reverse proxy me HTTPS** (p.sh. Nginx/Caddy). Cookie-t janë `sameSite=lax`.
 
-## Konfigurim (variabla mjedisi, opsionale)
+### Pa Docker
+```bash
+NODE_ENV=production JWT_SECRET=... CRED_KEY=... OWNER_PASS=... node server.js
+```
+
+## Variablat e mjedisit
 
 | Variabël | Përshkrim | Default |
 |----------|-----------|---------|
-| `PORT` | Porta e serverit | `3000` |
-| `JWT_SECRET` | Çelësi i token-ave | *(ndryshoje në prodhim)* |
+| `PORT` | Porta | `3000` |
+| `NODE_ENV` | `production` kërkon sekretet | — |
+| `JWT_SECRET` | Çelësi i token-ave | *(detyrim në prodhim)* |
+| `CRED_KEY` | Çelësi i enkriptimit të kredencialeve | *(detyrim në prodhim)* |
 | `DB_PATH` | Vendndodhja e bazës | `./data.db` |
+| `ROBOTS_REAL` | `1` aktivizon konektorët realë | `0` |
+| `MOCK_PORTAL_URL` | URL-ja e portalit për robotin shembull | demo lokal |
 
 ## Struktura
 
 ```
-server.js            # pika e nisjes + montimi i rrugëve
+server.js                # pika e nisjes, health, auto-seed, montimi i rrugëve
 src/
-  db.js              # skema + migrime + cilësime fillestare
-  auth.js            # JWT, bcrypt, middleware rolesh
-  audit.js           # regjistrimi i veprimeve
-  seed.js            # mbjellja e të dhënave fillestare
-  routes/            # auth, users, clients, products, invoices, expenses, reports, settings
-public/
-  index.html, app.js, styles.css   # ndërfaqja
+  db.js                  # skema + migrime + katalogu i shërbimeve
+  auth.js  crypto.js     # JWT/role + enkriptim kredencialesh (AES-GCM)
+  engine.js  profiles.js # motori i automatizimit + profilet e shërbimeve
+  pdf.js                 # gjenerim PDF/ZIP (Playwright + archiver)
+  robots/                # konektorët e robotëve (realë, pluggable)
+  routes/                # auth, users, subjects, services, executions, …
+public/                  # ndërfaqja (SPA) + portali demo
+Dockerfile  docker-compose.yml  .env.example
 ```
 
-## Siguria — shënime për prodhim
+## Siguria
 
-- Vendos një `JWT_SECRET` të fortë.
-- Përdor HTTPS (cookie-t janë `sameSite=lax`, shto `secure` pas HTTPS).
-- Ndrysho fjalëkalimet default menjëherë.
+- Vendos `JWT_SECRET` dhe `CRED_KEY` të forta (serveri refuzon nisjen në prodhim pa to).
+- Fjalëkalimet e subjekteve ruhen të enkriptuara (AES-256-GCM) dhe nuk kthehen kurrë në API.
+- Përdor HTTPS në prodhim; ndrysho fjalëkalimet default menjëherë.
