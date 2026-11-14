@@ -79,6 +79,15 @@ async function processOne(execId) {
         ON CONFLICT(service_id, subject_id) DO UPDATE SET status=excluded.status, result=excluded.result, data=excluded.data, updated_at=datetime('now')
       `).run(ex.service_id, ex.subject_id, recStatus, out.result || null, JSON.stringify(out.data || {}));
     }
+
+    // Njoftim automatik kur ekzekutimi dështon
+    if (!out.ok) {
+      db.prepare("INSERT INTO notifications (title, body, level) VALUES (?,?,?)").run(
+        'Ekzekutim i dështuar',
+        `${service.name} — ${subject ? subject.name : ''}: ${out.result || 'gabim'}`,
+        'error'
+      );
+    }
   } catch (e) {
     db.prepare("UPDATE executions SET status='deshtoi', result=?, finished_at=datetime('now') WHERE id=?").run(String(e.message || e), execId);
     log(execId, 'error', 'Gabim: ' + (e.message || e));

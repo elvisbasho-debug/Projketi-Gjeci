@@ -180,9 +180,10 @@ function renderApp() {
 /* ============ Router ============ */
 const ROUTES = {
   '': viewDashboard, services: viewServices, service: viewServiceDetail, va: viewVA,
-  subjects: viewSubjects, automation: viewAutomation, notifications: viewNotifications,
+  subjects: viewSubjects, subject: viewSubjectDetail, automation: viewAutomation, notifications: viewNotifications,
   support: viewSupport, users: viewUsers, audit: viewAudit, settings: viewSettings, profile: viewProfile,
 };
+const NAV_ALIAS = { service: 'services', subject: 'subjects' };
 let AUTO_TIMER = null;
 function route() {
   if (AUTO_TIMER) { clearInterval(AUTO_TIMER); AUTO_TIMER = null; }
@@ -191,8 +192,8 @@ function route() {
   const fn = ROUTES[key] || viewDashboard;
   const navItem = NAV.find(n => n.key === key);
   if (navItem && !can(navItem.role)) { $('#view').innerHTML = '<div class="empty">Nuk keni akses.</div>'; return; }
-  $$('.nav-item[data-key]').forEach(b => b.classList.toggle('active', b.dataset.key === (key === 'service' ? 'services' : key)));
-  const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
+  $$('.nav-item[data-key]').forEach(b => b.classList.toggle('active', b.dataset.key === (NAV_ALIAS[key] || key)));
+  const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', subject: 'Subjekti', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
   $('#pageTitle').textContent = titles[key] || 'Finbot';
   $('#view').innerHTML = '<div class="empty">Duke ngarkuar…</div>';
   fn($('#view'), parts[1]);
@@ -362,8 +363,9 @@ async function viewSubjects(el) {
       <td><b>${esc(s.name)}</b></td><td class="muted">${esc(s.nipt || '—')}</td><td class="muted">${esc(s.ealbania_user || '—')}</td>
       <td>${s.has_ealbania_pass ? '<span class="badge b-active">e-Albania ✓</span>' : '<span class="badge b-draft">Pa fjalëkalim</span>'}</td>
       <td><span class="badge ${s.status === 'active' ? 'b-active' : 'b-cancelled'}">${s.status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></td>
-      <td class="num">${can('accountant') ? `<button class="btn ghost sm" data-edit="${s.id}">Ndrysho</button> <button class="btn ghost sm" data-del="${s.id}">Fshi</button>` : ''}</td>
+      <td class="num"><button class="btn ghost sm" data-open="${s.id}">Hap</button>${can('accountant') ? ` <button class="btn ghost sm" data-edit="${s.id}">Ndrysho</button> <button class="btn ghost sm" data-del="${s.id}">Fshi</button>` : ''}</td>
     </tr>`).join('') : '<tr><td colspan="6"><div class="empty">Asnjë subjekt</div></td></tr>';
+    $$('[data-open]').forEach(b => b.onclick = () => location.hash = '#/subject/' + b.dataset.open);
     $$('[data-edit]').forEach(b => b.onclick = () => subjectForm(rows.find(x => x.id == b.dataset.edit)));
     $$('[data-del]').forEach(b => b.onclick = () => confirmBox('Të fshihet subjekti?', async () => { await api.del('/subjects/' + b.dataset.del); toast('U fshi'); viewSubjects(el); }, { danger: true }));
   };
@@ -372,6 +374,43 @@ async function viewSubjects(el) {
   $('#exp').onclick = () => downloadFile('/subjects/export', 'subjektet.csv');
   if ($('#imp')) $('#imp').onclick = () => importSubjectsCsv(() => viewSubjects(el));
   if ($('#add')) $('#add').onclick = () => subjectForm();
+}
+
+async function viewSubjectDetail(el, id) {
+  const s = await api.get('/subjects/' + id);
+  el.innerHTML = `
+    <button class="btn ghost sm" id="back" style="margin-bottom:14px">&larr; Subjektet</button>
+    <div class="grid" style="grid-template-columns:320px 1fr;align-items:start">
+      <div class="card">
+        <div class="card-head"><h3>${esc(s.name)}</h3><span class="badge ${s.status === 'active' ? 'b-active' : 'b-cancelled'}">${s.status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></div>
+        <div class="card-body">
+          <div class="field" style="margin-bottom:10px"><div class="muted" style="font-size:12px">NIPT</div><b>${esc(s.nipt || '—')}</b></div>
+          <div class="field" style="margin-bottom:10px"><div class="muted" style="font-size:12px">Përdoruesi e-Albania</div><b>${esc(s.ealbania_user || '—')}</b></div>
+          <div class="field" style="margin-bottom:10px"><div class="muted" style="font-size:12px">Kredencialet</div>${s.has_ealbania_pass ? '<span class="badge b-active">e-Albania ✓</span>' : '<span class="badge b-draft">Pa fjalëkalim</span>'} ${s.has_selfcare_pass ? '<span class="badge b-active">Self-Care ✓</span>' : ''}</div>
+          ${s.notes ? `<div class="muted" style="font-size:13px">${esc(s.notes)}</div>` : ''}
+          ${can('accountant') ? `<button class="btn ghost" id="edit" style="margin-top:8px">Ndrysho subjektin</button>` : ''}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Shërbimet e subjektit</h3></div>
+        <div class="card-body" style="padding:0"><table>
+          <thead><tr><th>Shërbimi</th><th>Statusi</th><th>Rezultati</th><th>Përditësuar</th><th></th></tr></thead>
+          <tbody>${s.records.length ? s.records.map(r => `<tr>
+            <td><b>${esc(r.service_name)}</b></td>
+            <td>${badge(REC_ST, r.status)}</td>
+            <td class="muted">${esc(r.result || '—')}</td>
+            <td class="muted">${timeAgo(r.updated_at)}</td>
+            <td class="num">
+              ${can('accountant') ? `<button class="btn ghost sm" data-run="${r.service_id}">${I.play}</button>` : ''}
+              <button class="btn ghost sm" data-pdf="${r.service_id}">PDF</button>
+            </td></tr>`).join('') : '<tr><td colspan="5"><div class="empty">Ky subjekt nuk është regjistruar në asnjë shërbim</div></td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+  $('#back').onclick = () => location.hash = '#/subjects';
+  if ($('#edit')) $('#edit').onclick = () => subjectForm(s);
+  $$('[data-run]', el).forEach(b => b.onclick = async () => { await api.post('/services/' + b.dataset.run + '/run', { subject_ids: [s.id] }); toast('U fut në radhë'); location.hash = '#/automation'; });
+  $$('[data-pdf]', el).forEach(b => b.onclick = () => downloadFile('/services/' + b.dataset.pdf + '/records/' + s.id + '/pdf', 'deklarate.pdf'));
 }
 
 function subjectForm(s) {
