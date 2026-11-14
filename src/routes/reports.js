@@ -6,83 +6,36 @@ const { requireRole } = require('../auth');
 
 const router = express.Router();
 
-function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
-
-// Përmbledhje për panelin kryesor
+// Përmbledhja e panelit kryesor
 router.get('/dashboard', requireRole('viewer'), (req, res) => {
-  const clients = db.prepare('SELECT COUNT(*) c FROM clients').get().c;
-  const invoices = db.prepare('SELECT COUNT(*) c FROM invoices').get().c;
+  const servicesTotal = db.prepare('SELECT COUNT(*) c FROM services').get().c;
+  const servicesActive = db.prepare('SELECT COUNT(*) c FROM service_quotas WHERE active=1').get().c;
+  const subjects = db.prepare('SELECT COUNT(*) c FROM subjects').get().c;
+  const usage = db.prepare('SELECT COALESCE(SUM(used),0) used, COALESCE(SUM(max_limit),0) max FROM service_quotas').get();
 
-  const income = db.prepare(`
-    SELECT COALESCE(SUM(quantity*unit_price),0) net,
-           COALESCE(SUM(quantity*unit_price*vat_rate/100),0) vat
-    FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
-    WHERE i.status = 'paid'
-  `).get();
+  const execs = {};
+  db.prepare('SELECT status, COUNT(*) c FROM executions GROUP BY status').all().forEach(r => execs[r.status] = r.c);
 
-  const outstanding = db.prepare(`
-    SELECT COALESCE(SUM(quantity*unit_price*(1+vat_rate/100)),0) total
-    FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
-    WHERE i.status IN ('sent','overdue')
-  `).get().total;
-
-  const expenses = db.prepare(`SELECT COALESCE(SUM(amount),0) net, COALESCE(SUM(amount*vat_rate/100),0) vat FROM expenses`).get();
-
-  const byStatus = db.prepare(`SELECT status, COUNT(*) c FROM invoices GROUP BY status`).all();
-
-  // TVSH: e mbledhur (shitje të paguara) minus e zbritshme (shpenzime)
-  const vatCollected = income.vat;
-  const vatDeductible = expenses.vat;
+  const recent = db.prepare(`
+    SELECT r.status, r.updated_at, sub.name AS subject_name, sv.name AS service_name
+    FROM service_records r JOIN subjects sub ON sub.id=r.subject_id JOIN services sv ON sv.id=r.service_id
+    ORDER BY r.updated_at DESC LIMIT 8
+  `).all();
 
   res.json({
-    clients,
-    invoices,
-    income_net: round2(income.net),
-    income_total: round2(income.net + income.vat),
-    outstanding: round2(outstanding),
-    expenses_net: round2(expenses.net),
-    profit: round2(income.net - expenses.net),
-    vat_collected: round2(vatCollected),
-    vat_deductible: round2(vatDeductible),
-    vat_due: round2(vatCollected - vatDeductible),
-    by_status: byStatus,
+    services_total: servicesTotal,
+    services_active: servicesActive,
+    subjects,
+    usage_used: usage.used,
+    usage_max: usage.max,
+    exec_done: execs['kryer'] || 0,
+    exec_queue: (execs['ne_radhe'] || 0) + (execs['ne_ekzekutim'] || 0) + (execs['duke_riprovuar'] || 0),
+    exec_failed: execs['deshtoi'] || 0,
+    recent,
   });
 });
 
-// Të ardhurat muaj pas muaji (12 muajt e fundit) për grafik
-router.get('/monthly', requireRole('viewer'), (req, res) => {
-  const rows = db.prepare(`
-    SELECT strftime('%Y-%m', i.issue_date) ym,
-           COALESCE(SUM(quantity*unit_price),0) net
-    FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
-    WHERE i.status IN ('paid','sent','overdue')
-    GROUP BY ym ORDER BY ym DESC LIMIT 12
-  `).all().reverse();
-  res.json(rows.map(r => ({ ...r, net: round2(r.net) })));
-});
-
-// Deklarata e TVSH për një periudhë
-router.get('/vat', requireRole('accountant'), (req, res) => {
-  const from = req.query.from || '0000-01-01';
-  const to = req.query.to || '9999-12-31';
-  const sales = db.prepare(`
-    SELECT COALESCE(SUM(quantity*unit_price),0) net, COALESCE(SUM(quantity*unit_price*vat_rate/100),0) vat
-    FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id
-    WHERE i.issue_date BETWEEN ? AND ? AND i.status != 'cancelled' AND i.status != 'draft'
-  `).get(from, to);
-  const purchases = db.prepare(`
-    SELECT COALESCE(SUM(amount),0) net, COALESCE(SUM(amount*vat_rate/100),0) vat
-    FROM expenses WHERE date BETWEEN ? AND ?
-  `).get(from, to);
-  res.json({
-    from, to,
-    sales_net: round2(sales.net), sales_vat: round2(sales.vat),
-    purchases_net: round2(purchases.net), purchases_vat: round2(purchases.vat),
-    vat_due: round2(sales.vat - purchases.vat),
-  });
-});
-
-// Regjistri i veprimeve (audit). Owner-i sheh gjithçka; të tjerët nuk shohin veprimet e owner- it.
+// Regjistri i veprimeve — owner sheh gjithçka; të tjerët nuk shohin veprimet e owner-it.
 router.get('/audit', requireRole('admin'), (req, res) => {
   let rows;
   if (req.user.role === 'owner') {
