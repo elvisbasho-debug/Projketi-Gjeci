@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'defteri-dev-secret-ndrysho-ne-prodhim';
+const JWT_SECRET = process.env.JWT_SECRET || 'finbot-dev-secret-ndrysho-ne-prodhim';
 const TOKEN_TTL = '7d';
 
 // Hierarkia e roleve (sa më i lartë numri, aq më shumë të drejta)

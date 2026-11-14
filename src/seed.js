@@ -6,9 +6,9 @@
 const db = require('./db');
 const { hashPassword } = require('./auth');
 
-const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@defteri.al';
+const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@finbot.al';
 const OWNER_PASS = process.env.OWNER_PASS || 'Owner1234!';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@defteri.al';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@finbot.al';
 const ADMIN_PASS = process.env.ADMIN_PASS || 'Admin1234!';
 
 function upsertUser(name, email, pass, role, createdBy) {

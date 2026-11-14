@@ -1,7 +1,7 @@
 {
-  "name": "defteri",
+  "name": "finbot",
   "version": "1.0.0",
-  "description": "Defteri - platformë kontabiliteti online (fatura, klientë, shpenzime, TVSH, raporte) me sistem rolesh owner/admin.",
+  "description": "Finbot - platformë kontabiliteti online (fatura, klientë, shpenzime, TVSH, raporte) me sistem rolesh owner/admin.",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {

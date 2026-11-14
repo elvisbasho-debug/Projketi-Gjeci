@@ -47,7 +47,7 @@ const I = {
   users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="3.2"/><path d="M2 20a6 6 0 0 1 12 0M16 5a3.5 3.5 0 0 1 0 7M22 20a6 6 0 0 0-4-5.6"/></svg>',
   audit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6 1.6 1.6 0 0 0 8 1.1V1a2 2 0 0 1 4 0v.1A1.6 1.6 0 0 0 17 2.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H23a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.1z"/></svg>',
-  logo: '<svg viewBox="0 0 24 24" width="26" height="26" fill="#2f6df6"><rect width="24" height="24" rx="6"/><path d="M7 7h10M7 12h10M7 17h6" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
+  logo: '<svg viewBox="0 0 24 24" width="26" height="26"><rect width="24" height="24" rx="6" fill="#1f6ff0"/><rect x="5.5" y="13" width="3.2" height="5" rx="1" fill="#ffffff"/><rect x="10.4" y="9" width="3.2" height="9" rx="1" fill="#f5b70a"/><rect x="15.3" y="6" width="3.2" height="12" rx="1" fill="#17a65a"/></svg>',
   plus: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M12 5v14M5 12h14"/></svg>',
 };
 
@@ -67,7 +67,8 @@ function renderLogin(err) {
   root.innerHTML = `
     <div class="login-wrap">
       <div class="login-card">
-        <div class="brand">${I.logo}<b style="font-size:19px">Defteri</b></div>
+        <div class="brand">${I.logo}<b style="font-size:19px">Finbot</b></div>
+        <div class="accent-bar"></div>
         <h1>Mirë se vini</h1>
         <p class="sub">Hyni në llogarinë tuaj të kontabilitetit</p>
         <form id="loginForm">
@@ -118,7 +119,7 @@ function renderApp() {
   root.innerHTML = `
     <div class="app">
       <aside class="sidebar" id="sidebar">
-        <div class="logo">${I.logo}<b>Defteri</b></div>
+        <div class="logo">${I.logo}<b>Finbot</b></div>
         <nav id="nav"></nav>
         <div class="spacer"></div>
         <div class="nav-sep"></div>
@@ -186,7 +187,7 @@ function route() {
   if (navItem && !can(navItem.role)) { $('#view').innerHTML = '<div class="empty">Nuk keni akses në këtë faqe.</div>'; return; }
   document.querySelectorAll('.nav-item[data-key]').forEach(b => b.classList.toggle('active', b.dataset.key === key));
   const titles = { '': 'Paneli', invoices: 'Faturat', clients: 'Klientët', products: 'Produkte & Shërbime', expenses: 'Shpenzimet', reports: 'Raporte & TVSH', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
-  $('#pageTitle').textContent = titles[key] || 'Defteri';
+  $('#pageTitle').textContent = titles[key] || 'Finbot';
   $('#view').innerHTML = '<div class="empty">Duke ngarkuar…</div>';
   fn($('#view'));
 }

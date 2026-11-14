@@ -1,4 +1,4 @@
-# Defteri — Kontabilitet Online
+# Finbot — Kontabilitet Online
 
 Platformë kontabiliteti për biznese të vogla: fatura, klientë, produkte/shërbime,
 shpenzime, TVSH dhe raporte — me një sistem rolesh që përfshin një **pronar (owner)
@@ -51,8 +51,8 @@ npm start        # http://localhost:3000
 
 | Roli | Email | Fjalëkalimi |
 |------|-------|-------------|
-| Owner (i fshehtë) | `owner@defteri.al` | `Owner1234!` |
-| Admin | `admin@defteri.al` | `Admin1234!` |
+| Owner (i fshehtë) | `owner@finbot.al` | `Owner1234!` |
+| Admin | `admin@finbot.al` | `Admin1234!` |
 
 Mund t'i ndryshosh me variabla mjedisi para `npm run seed`:
 `OWNER_EMAIL`, `OWNER_PASS`, `ADMIN_EMAIL`, `ADMIN_PASS`.
