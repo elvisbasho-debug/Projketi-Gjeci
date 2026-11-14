@@ -34,6 +34,27 @@ function toast(msg, isErr) {
   document.body.appendChild(t); setTimeout(() => t.remove(), 2800);
 }
 
+// Shkarkim skedari (CSV/PDF) përmes fetch → blob
+async function downloadFile(url, filename) {
+  toast('Duke përgatitur…');
+  try {
+    const r = await fetch('/api' + url, { credentials: 'same-origin' });
+    if (!r.ok) { let e; try { e = (await r.json()).error; } catch (_) {} throw new Error(e || 'Gabim gjatë shkarkimit'); }
+    const blob = await r.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) { toast(e.message, true); }
+}
+function importSubjectsCsv(onDone) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.csv,text/csv';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try { const r = await api.post('/subjects/import', { csv: await f.text() }); toast(`U importuan ${r.created} subjekte (${r.skipped} u kapërcyen)`); onDone(); }
+    catch (e) { toast(e.message, true); }
+  };
+  inp.click();
+}
+
 // Statuset
 const EXEC_ST = { ne_radhe: ['Në radhë', 'b-draft'], ne_ekzekutim: ['Në ekzekutim', 'b-sent'], duke_riprovuar: ['Duke riprovuar', 'b-sent'], kryer: ['Kryer', 'b-paid'], deshtoi: ['Dështoi', 'b-overdue'], anuluar: ['Anuluar', 'b-cancelled'] };
 const REC_ST = { ne_pritje: ['Në pritje', 'b-draft'], kryer: ['Kryer', 'b-paid'], deshtoi: ['Dështoi', 'b-overdue'], deklaruar: ['Deklaruar', 'b-paid'] };
@@ -248,6 +269,8 @@ async function viewServiceDetail(el, id) {
         <div style="display:flex;gap:8px">
           ${can('accountant') ? `<button class="btn" id="runAll">${I.play} Ekzekuto të gjitha</button>` : ''}
           ${can('accountant') ? `<button class="btn ghost" id="addSub">${I.plus} Shto subjekt</button>` : ''}
+          <button class="btn ghost" id="exp">Eksporto</button>
+          <button class="btn ghost" id="pdfAll">PDF</button>
           <button class="btn ghost" id="refresh">Rifresko</button>
         </div>
       </div>
@@ -262,6 +285,7 @@ async function viewServiceDetail(el, id) {
             <td class="num">${r.data && r.data.totali != null ? nf(r.data.totali) : '—'}</td>
             <td class="num">
               ${can('accountant') ? `<button class="btn ghost sm" data-run="${r.subject_id}">${I.play}</button>` : ''}
+              <button class="btn ghost sm" data-pdf="${r.subject_id}">PDF</button>
               <button class="btn ghost sm" data-det="${r.subject_id}">Detaje</button>
             </td></tr>`).join('') : '<tr><td colspan="8"><div class="empty">Asnjë subjekt te ky shërbim. Shtoni një.</div></td></tr>'}</tbody>
         </table>
@@ -269,6 +293,9 @@ async function viewServiceDetail(el, id) {
     </div>`;
   $('#back').onclick = () => location.hash = '#/services';
   $('#refresh').onclick = () => viewServiceDetail(el, id);
+  $('#exp').onclick = () => downloadFile('/services/' + id + '/export', 'sherbimi-' + id + '.csv');
+  $('#pdfAll').onclick = () => downloadFile('/services/' + id + '/pdf', 'deklaratat.pdf');
+  $$('[data-pdf]', el).forEach(b => b.onclick = () => downloadFile('/services/' + id + '/records/' + b.dataset.pdf + '/pdf', 'deklarate.pdf'));
   if ($('#runAll')) $('#runAll').onclick = async () => {
     if (!s.records.length) return toast('Shto subjekte fillimisht', true);
     const r = await api.post('/services/' + id + '/run', {}); toast(`U futën në radhë ${r.queued} ekzekutime`); location.hash = '#/automation';
@@ -302,7 +329,11 @@ async function viewSubjects(el) {
   const list = await api.get('/subjects');
   el.innerHTML = `
     <div class="toolbar"><input class="search" id="q" placeholder="Kërko sipas emrit ose NIPT-it…">
-      ${can('accountant') ? `<button class="btn" id="add">${I.plus} Shto subjekt</button>` : ''}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost" id="exp">Eksporto CSV</button>
+        ${can('accountant') ? `<button class="btn ghost" id="imp">Importo CSV</button>` : ''}
+        ${can('accountant') ? `<button class="btn" id="add">${I.plus} Shto subjekt</button>` : ''}
+      </div></div>
     <div class="card"><table>
       <thead><tr><th>Emri</th><th>NIPT</th><th>e-Albania</th><th>Kredencialet</th><th>Statusi</th><th></th></tr></thead>
       <tbody id="rows"></tbody></table></div>`;
@@ -318,6 +349,8 @@ async function viewSubjects(el) {
   };
   render(list);
   let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(async () => render(await api.get('/subjects?q=' + encodeURIComponent(e.target.value))), 250); };
+  $('#exp').onclick = () => downloadFile('/subjects/export', 'subjektet.csv');
+  if ($('#imp')) $('#imp').onclick = () => importSubjectsCsv(() => viewSubjects(el));
   if ($('#add')) $('#add').onclick = () => subjectForm();
 }
 

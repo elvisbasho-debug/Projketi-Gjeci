@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="sq">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portal Demo — Finbot RPA</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #eef2f8; margin: 0; color: #1f2a44; }
+    .wrap { max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    .banner { background: #fff4d6; border: 1px solid #f0d58a; color: #8a6400; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 18px; }
+    .card { background: #fff; border: 1px solid #e2e8f2; border-radius: 12px; padding: 24px; box-shadow: 0 6px 20px rgba(20,40,90,.06); }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { color: #697089; font-size: 13px; margin: 0 0 18px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 5px; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f2; border-radius: 8px; box-sizing: border-box; }
+    button { margin-top: 18px; width: 100%; padding: 11px; border: none; border-radius: 8px; background: #1f6ff0; color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+    .row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eef2f8; }
+    .row:last-child { border-bottom: none; }
+    .row b { font-variant-numeric: tabular-nums; }
+    .hidden { display: none; }
+    .tag { display: inline-block; background: #e1f7ea; color: #17a65a; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="banner">⚠ PORTAL DEMO — faqe testimi për robotët e Finbot. Nuk është portal real dhe nuk lidhet me asnjë sistem shtetëror.</div>
+
+    <div class="card" id="loginCard">
+      <h1>Hyrje në Portalin Demo</h1>
+      <p class="sub">Simulon një portal tatimor për të provuar automatizimin (RPA).</p>
+      <label for="username">Përdoruesi (NIPT)</label>
+      <input id="username" autocomplete="off" />
+      <label for="password">Fjalëkalimi</label>
+      <input id="password" type="password" autocomplete="off" />
+      <button id="login">Hyr</button>
+    </div>
+
+    <div class="card hidden" id="dashboard">
+      <h1>Paneli i Subjektit <span class="tag">I lidhur</span></h1>
+      <p class="sub">Mirë se vini, <span id="who"></span></p>
+      <div class="row"><span>TVSH mujore</span><b id="tvsh-value">0</b></div>
+      <div class="row"><span>Totali</span><b id="total-value">0</b></div>
+      <div class="row"><span>Kredi</span><b id="kredi-value">0</b></div>
+      <button id="deklaro">Deklaro TVSH-në</button>
+      <div id="konfirmim" class="hidden" style="margin-top:12px;color:#17a65a;font-weight:600;text-align:center">Deklarimi u krye me sukses ✓</div>
+    </div>
+  </div>
+
+  <script>
+    // Vlera deterministike nga emri i përdoruesit (vetëm për demo).
+    function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+    document.getElementById('login').onclick = function () {
+      var u = document.getElementById('username').value.trim();
+      var p = document.getElementById('password').value;
+      if (!u || !p) { alert('Plotësoni kredencialet'); return; }
+      var h = hash(u);
+      var tvsh = -((h % 300000) + 10000);
+      var total = tvsh - (h % 200000);
+      var kredi = h % 800000;
+      document.getElementById('who').textContent = u;
+      document.getElementById('tvsh-value').textContent = tvsh.toLocaleString('sq-AL');
+      document.getElementById('total-value').textContent = total.toLocaleString('sq-AL');
+      document.getElementById('kredi-value').textContent = kredi.toLocaleString('sq-AL');
+      document.getElementById('loginCard').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+    };
+    document.getElementById('deklaro').onclick = function () {
+      document.getElementById('konfirmim').classList.remove('hidden');
+    };
+  </script>
+</body>
+</html>

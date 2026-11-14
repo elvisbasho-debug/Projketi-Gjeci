@@ -4,8 +4,21 @@ const express = require('express');
 const db = require('../db');
 const audit = require('../audit');
 const { requireRole } = require('../auth');
+const { htmlToPdf, buildDeclarationDoc } = require('../pdf');
 
 const router = express.Router();
+
+function companyInfo() {
+  const row = db.prepare("SELECT value FROM settings WHERE key='company'").get();
+  return row ? JSON.parse(row.value) : {};
+}
+function recordsForService(id) {
+  return db.prepare(`
+    SELECT r.status, r.result, r.data, r.updated_at, sub.name AS subject_name, sub.nipt
+    FROM service_records r JOIN subjects sub ON sub.id = r.subject_id
+    WHERE r.service_id = ? ORDER BY sub.name
+  `).all(id).map(r => ({ ...r, data: r.data ? JSON.parse(r.data) : {} }));
+}
 
 // Lista e shërbimeve me kuotat
 router.get('/', requireRole('viewer'), (req, res) => {
@@ -83,6 +96,52 @@ router.post('/:id/run', requireRole('accountant'), (req, res) => {
   tx();
   audit.log(req.user, 'ekzekutoi_sherbim', 'services', s.id, { subjekte: subjectIds.length });
   res.json({ ok: true, queued: subjectIds.length });
+});
+
+// EKSPORT CSV i rekordeve të një shërbimi
+router.get('/:id/export', requireRole('viewer'), (req, res) => {
+  const s = db.prepare('SELECT * FROM services WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Shërbimi nuk u gjet' });
+  const recs = recordsForService(s.id);
+  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const header = 'Subjekti,NIPT,Statusi,TVSH mujore,Totali,Kredi,Perditesuar';
+  const body = recs.map(r => [r.subject_name, r.nipt, r.status, r.data.tvsh_mujore, r.data.totali, r.data.kredi, r.updated_at].map(esc).join(',')).join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${s.code}.csv"`);
+  res.send('﻿' + header + '\n' + body);
+});
+
+// PDF i të gjitha deklaratave të një shërbimi (shumë faqe)
+router.get('/:id/pdf', requireRole('viewer'), async (req, res) => {
+  const s = db.prepare('SELECT * FROM services WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Shërbimi nuk u gjet' });
+  const recs = recordsForService(s.id);
+  if (!recs.length) return res.status(400).json({ error: 'Nuk ka rekorde për PDF' });
+  try {
+    const pdf = await htmlToPdf(buildDeclarationDoc(companyInfo(), s, recs));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${s.code}-deklaratat.pdf"`);
+    res.send(pdf);
+  } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
+});
+
+// PDF i një deklarate të vetme (subjekt × shërbim)
+router.get('/:id/records/:subjectId/pdf', requireRole('viewer'), async (req, res) => {
+  const s = db.prepare('SELECT * FROM services WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Shërbimi nuk u gjet' });
+  const r = db.prepare(`
+    SELECT r.status, r.result, r.data, r.updated_at, sub.name AS subject_name, sub.nipt
+    FROM service_records r JOIN subjects sub ON sub.id=r.subject_id
+    WHERE r.service_id=? AND r.subject_id=?
+  `).get(s.id, req.params.subjectId);
+  if (!r) return res.status(404).json({ error: 'Rekordi nuk u gjet' });
+  r.data = r.data ? JSON.parse(r.data) : {};
+  try {
+    const pdf = await htmlToPdf(buildDeclarationDoc(companyInfo(), s, [r]));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="deklarate-${(r.subject_name||'').replace(/\s+/g,'_')}.pdf"`);
+    res.send(pdf);
+  } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
 });
 
 module.exports = router;

@@ -29,6 +29,53 @@ router.get('/', requireRole('viewer'), (req, res) => {
   res.json(rows.map(shape));
 });
 
+// EKSPORT CSV (pa fjalëkalime — vetëm të dhënat bazë)
+router.get('/export', requireRole('viewer'), (req, res) => {
+  const rows = db.prepare('SELECT name, nipt, ealbania_user, status FROM subjects ORDER BY name').all();
+  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const header = 'Emri,NIPT,PerdoruesEAlbania,Statusi';
+  const body = rows.map(r => [r.name, r.nipt, r.ealbania_user, r.status].map(esc).join(',')).join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="subjektet.csv"');
+  res.send('﻿' + header + '\n' + body);
+});
+
+// IMPORT CSV — kolonat: Emri, NIPT, PerdoruesEAlbania, Statusi
+router.post('/import', requireRole('accountant'), (req, res) => {
+  const text = (req.body && req.body.csv) || '';
+  if (!text.trim()) return res.status(400).json({ error: 'CSV bosh' });
+  // Parser i thjeshtë CSV (mbështet thonjëza dhe presje brenda tyre)
+  const parseLine = line => {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+      else { if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c; }
+    }
+    out.push(cur); return out;
+  };
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  let start = 0;
+  if (lines[0] && /emri/i.test(lines[0])) start = 1; // kapërce header-in
+  const ins = db.prepare('INSERT INTO subjects (name, nipt, ealbania_user, status, created_by) VALUES (?,?,?,?,?)');
+  let created = 0, skipped = 0;
+  const tx = db.transaction(() => {
+    for (let i = start; i < lines.length; i++) {
+      const cols = parseLine(lines[i]);
+      const name = (cols[0] || '').trim();
+      if (!name) { skipped++; continue; }
+      const nipt = (cols[1] || '').trim() || null;
+      const euser = (cols[2] || '').trim() || null;
+      const status = /joaktiv|inactive/i.test(cols[3] || '') ? 'inactive' : 'active';
+      ins.run(name, nipt, euser, status, req.user.id);
+      created++;
+    }
+  });
+  tx();
+  audit.log(req.user, 'importoi_subjekte', 'subjects', null, { created, skipped });
+  res.json({ ok: true, created, skipped });
+});
+
 router.get('/:id', requireRole('viewer'), (req, res) => {
   const s = db.prepare('SELECT * FROM subjects WHERE id = ?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Subjekti nuk u gjet' });
