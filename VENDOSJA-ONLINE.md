@@ -65,6 +65,29 @@ tatimeve më thuaj dhe të ndihmoj ta plotësojmë konektorin e parë hap pas ha
 
 ---
 
+## Lidhja e domain-it tënd (finbot.magmabots.com)
+
+Programi punon te Render; adresa e bukur `finbot.magmabots.com` tregohet nga Render me një rregull DNS.
+
+**Hapi 1 — te Render:**
+- Render → shërbimi **finbot** → **Settings** → **Custom Domains** → **Add Custom Domain**.
+- Shkruaj: `finbot.magmabots.com` → Render të jep një vlerë **CNAME** (diçka si `finbot-xxxx.onrender.com`). Kopjoje.
+
+**Hapi 2 — te vendi ku menaxhohet DNS-i i magmabots.com** (Netlify, Cloudflare, ose ku e ke blerë domain-in):
+- Shto një regjistrim të ri **CNAME**:
+  - **Name / Host:** `finbot`
+  - **Value / Target:** vlera që të dha Render (`finbot-xxxx.onrender.com`)
+  - Ruaj.
+- Nëse DNS-i yt është te **Netlify**: Netlify → **Domains** → magmabots.com → **Add new record** → Type **CNAME**, Name `finbot`, Value = vlera nga Render.
+
+**Hapi 3 — prit pak:**
+- Pas 5–30 minutash (ndonjëherë deri 1 orë) adresa fillon të punojë.
+- Render e vendos vetë **HTTPS-në** falas për `finbot.magmabots.com`.
+
+> Shënim: Netlify (ose kushdo tjetër) përdoret vetëm për DNS-in e adresës. Programi punon te Render.
+
+---
+
 ## Nëse ngec diku
 Më shkruaj çfarë shfaqet në ekran (ose dërgo një foto) dhe të them saktë ku të klikosh.
 Gabimet më të shpeshta:
