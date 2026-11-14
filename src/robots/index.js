@@ -12,19 +12,23 @@
 
       ROBOTS_REAL=1 npm start
 
-  Për të shtuar një robot të ri real:
-    1. Krijo src/robots/<kodi_sherbimit>.js me funksionin
-       async run(subject, creds, service) → { ok, result, process_ms, status, data }
-    2. Shtoje më poshtë te lista.
+  Çdo shërbim ka modulin e vet me funksionin run(subject, creds, service).
+  Për ta lidhur me portalin real, redakto skedarin përkatës te src/robots/.
 */
 
 const connectors = {};
 
 if (process.env.ROBOTS_REAL === '1') {
-  connectors.tvsh_deklarim = require('./tvsh_deklarim');
-  // connectors.listepagesa_esig = require('./listepagesa_esig');
-  // connectors.pash            = require('./pash');
-  console.log('  Konektorët realë të robotëve u aktivizuan (ROBOTS_REAL=1).');
+  const CODES = [
+    'mbledhje_fatura', 'tvsh_deklarim', 'detyrime_realtime', 'xhiro_shpenzime',
+    'tvsh_krahasim', 'tatim_burim_qira', 'listepagesa_esig', 'dogana_importe',
+    'cats_dokumente', 'padeklaruara', 'pash',
+  ];
+  for (const code of CODES) {
+    try { connectors[code] = require('./' + code); }
+    catch (e) { console.error('  Konektori "' + code + '" nuk u ngarkua:', e.message); }
+  }
+  console.log('  Konektorët realë u aktivizuan (' + Object.keys(connectors).length + ' shërbime).');
 }
 
 module.exports = connectors;

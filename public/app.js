@@ -259,7 +259,11 @@ async function viewDashboard(el) {
 async function viewServices(el) {
   const list = await api.get('/services');
   el.innerHTML = `
-    <div class="toolbar"><div class="muted">Shërbime të mbështetura nga robotët dhe kufij mujorë.</div><div class="muted">Shfaqur: ${list.length} / ${list.length}</div></div>
+    <div class="toolbar"><div class="muted">Shërbime të mbështetura nga robotët dhe kufij mujorë.</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        ${can('accountant') ? `<button class="btn" id="massRun">${I.play} Ekzekutim masiv</button>` : ''}
+        <div class="muted">Shfaqur: ${list.length} / ${list.length}</div>
+      </div></div>
     <div class="grid svc-grid">${list.map(s => {
       const pct = s.max_limit ? Math.round(s.used / s.max_limit * 100) : 0;
       return `<div class="card svc-card" data-id="${s.id}">
@@ -271,6 +275,19 @@ async function viewServices(el) {
       </div>`;
     }).join('')}</div>`;
   $$('.svc-card', el).forEach(c => c.onclick = () => location.hash = '#/service/' + c.dataset.id);
+  if ($('#massRun')) $('#massRun').onclick = () => {
+    modal('Ekzekutim masiv', `
+      <p class="muted" style="margin-top:0">Zgjidh një shërbim dhe ekzekutoje për <b>të gjitha subjektet aktive</b> njëherësh.</p>
+      <div class="field"><label>Shërbimi</label><select id="mr_svc">${list.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+      <div class="muted" style="font-size:12.5px">Çdo subjekt do të futet në radhën e automatizimit. Mund t'i ndjekësh te "Automatizimi".</div>
+    `, {
+      saveLabel: 'Ekzekuto për të gjithë', onSave: async bg => {
+        const sid = $('#mr_svc', bg).value;
+        const r = await api.post('/services/' + sid + '/run', { all: true });
+        toast(`U futën në radhë ${r.queued} ekzekutime`); location.hash = '#/automation';
+      }
+    });
+  };
 }
 
 async function viewServiceDetail(el, id) {

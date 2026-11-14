@@ -77,7 +77,10 @@ router.post('/:id/run', requireRole('accountant'), (req, res) => {
   if (!s) return res.status(404).json({ error: 'Shërbimi nuk u gjet' });
 
   let subjectIds = (req.body && req.body.subject_ids) || [];
-  if (!subjectIds.length) {
+  if (req.body && req.body.all) {
+    // EKZEKUTIM MASIV: të gjitha subjektet (edhe të paregjistruarat te shërbimi)
+    subjectIds = db.prepare("SELECT id FROM subjects WHERE status='active'").all().map(r => r.id);
+  } else if (!subjectIds.length) {
     // të gjitha subjektet e regjistruara te ky shërbim
     subjectIds = db.prepare('SELECT subject_id FROM service_records WHERE service_id=?').all(s.id).map(r => r.subject_id);
   }
