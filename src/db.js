@@ -150,6 +150,43 @@ function migrate() {
     );
   `);
 
+  // Migrime shtesë (kolona të reja në tabela ekzistuese)
+  const addColumn = (table, col, def) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+    if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+  };
+  addColumn('service_records', 'period_from', 'TEXT');   // periudha e punës (Datat masive)
+  addColumn('service_records', 'period_to', 'TEXT');
+  addColumn('executions', 'action', 'TEXT');             // veprimi specifik (p.sh. 'blerjet')
+  addColumn('users', 'subject_id', 'INTEGER');           // për rolin 'client': biznesi që i përket
+
+  db.exec(`
+    /* ---------- Historiku i rezultateve për çdo rekord (për Statistika/Historik) ---------- */
+    CREATE TABLE IF NOT EXISTS record_history (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      service_id  INTEGER NOT NULL REFERENCES services(id),
+      subject_id  INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+      period      TEXT,            -- YYYY-MM
+      action      TEXT,
+      status      TEXT,
+      result      TEXT,
+      data        TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS ix_hist ON record_history(service_id, subject_id, period);
+
+    /* ---------- Kërkesat e klientëve (portali i klientit: TVSH në kohë reale) ---------- */
+    CREATE TABLE IF NOT EXISTS client_requests (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_id    INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+      user_id       INTEGER,
+      kind          TEXT NOT NULL DEFAULT 'tvsh',
+      execution_id  INTEGER,
+      status        TEXT NOT NULL DEFAULT 'ne_radhe',
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   // Cilësimet e workspace/kompanisë
   const hasCompany = db.prepare("SELECT value FROM settings WHERE key='company'").get();
   if (!hasCompany) {

@@ -3,6 +3,7 @@
 // Gjeneron PDF nga HTML duke përdorur Chromium (Playwright).
 const { chromium } = require('playwright');
 const archiver = require('archiver');
+const { schemaFor } = require('./service-schema');
 
 async function htmlToPdf(html) {
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
@@ -74,12 +75,13 @@ function declarationPage(company, service, rec) {
         <div><b>Statusi:</b> ${esc(rec.status || '—')}</div>
         <div><b>Data:</b> ${today}</div>
       </div>
+      ${rec.period_from || rec.period_to ? `<div class="meta"><b>Periudha:</b> ${esc(rec.period_from || '…')} – ${esc(rec.period_to || '…')}</div>` : ''}
       <table>
-        <thead><tr><th>Zëri</th><th class="num">Vlera (Lek)</th></tr></thead>
+        <thead><tr><th>Zëri</th><th class="num">Vlera</th></tr></thead>
         <tbody>
-          <tr><td>TVSH mujore</td><td class="num">${nf(d.tvsh_mujore)}</td></tr>
-          <tr><td>Kredi</td><td class="num">${nf(d.kredi)}</td></tr>
-          <tr class="total-row"><td>Totali</td><td class="num">${nf(d.totali)}</td></tr>
+          ${(schemaFor(service.code).columns.length ? schemaFor(service.code).columns : Object.keys(d).map(k => ({ key: k, label: k, type: typeof d[k] === 'number' ? 'num' : 'text' })))
+            .map(c => `<tr><td>${esc(c.label)}</td><td class="num">${d[c.key] == null ? '—' : (c.type === 'money' ? nf(d[c.key]) + ' Lek' : c.type === 'num' ? nf(d[c.key]) : esc(d[c.key]))}</td></tr>`).join('')}
+          <tr class="total-row"><td>Rezultati</td><td class="num">${esc(rec.result || '—')}</td></tr>
         </tbody>
       </table>
       <div class="foot">Gjeneruar nga Finbot më ${today}. Dokument informativ — verifikoni shifrat para deklarimit zyrtar.</div>
@@ -88,6 +90,22 @@ function declarationPage(company, service, rec) {
 
 function buildDeclarationDoc(company, service, records) {
   return `<!doctype html><html><head><meta charset="utf-8">${docStyle()}</head><body>${records.map(r => declarationPage(company, service, r)).join('')}</body></html>`;
+}
+
+// Raport statistikor: vlera mujore për 3 vite + totalet vjetore
+const MUAJT = ['Janar', 'Shkurt', 'Mars', 'Prill', 'Maj', 'Qershor', 'Korrik', 'Gusht', 'Shtator', 'Tetor', 'Nëntor', 'Dhjetor'];
+function buildStatsDoc(company, service, rec, st) {
+  const fmt = v => v == null ? '—' : nf(v);
+  return `<!doctype html><html><head><meta charset="utf-8">${docStyle()}</head><body><div class="page">
+    ${headerHtml(company)}
+    <h1>Statistika — ${esc(service.name)}</h1>
+    <div class="meta"><div><b>Subjekti:</b> ${esc(rec.subject_name)}</div><div><b>NIPT:</b> ${esc(rec.nipt || '—')}</div>
+      <div><b>Treguesi:</b> ${esc(st.metric)}${st.type === 'money' ? ' (Lek)' : ''}</div></div>
+    <table><thead><tr><th>Muaji</th>${st.years.map(y => `<th class="num">${y}</th>`).join('')}</tr></thead>
+      <tbody>${st.months.map((m, i) => `<tr><td>${MUAJT[i]}</td>${m.map(v => `<td class="num">${fmt(v)}</td>`).join('')}</tr>`).join('')}
+      <tr class="total-row"><td>Totali vjetor</td>${st.totals.map(v => `<td class="num">${nf(v)}</td>`).join('')}</tr></tbody></table>
+    <div class="foot">Gjeneruar nga Finbot më ${new Date().toISOString().slice(0, 10)}.</div>
+  </div></body></html>`;
 }
 
 // Gjeneron një PDF për çdo rekord (një browser i vetëm) dhe i kthen si buffer-a.
@@ -121,4 +139,4 @@ function zipBuffers(files) {
   });
 }
 
-module.exports = { htmlToPdf, buildDeclarationDoc, recordsToPdfBuffers, zipBuffers };
+module.exports = { htmlToPdf, buildDeclarationDoc, buildStatsDoc, recordsToPdfBuffers, zipBuffers };

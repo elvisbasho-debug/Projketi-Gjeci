@@ -47,13 +47,26 @@ if (db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
 
   const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 
+  const insHist = db.prepare('INSERT INTO record_history (service_id, subject_id, period, status, result, data, created_at) VALUES (?,?,?,?,?,?,?)');
+  const now = new Date();
+  // Periudhat mujore nga janari 2 vjet më parë deri muajin e kaluar (për Statistika/Historik)
+  const periods = [];
+  for (let d = new Date(now.getFullYear() - 2, 0, 1); d < new Date(now.getFullYear(), now.getMonth(), 1); d.setMonth(d.getMonth() + 1)) {
+    periods.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+
   for (const svc of services) {
     // zë ~4 subjekte për shërbim
     const used = Math.min(subjects.length, rnd(2, subjects.length));
     for (let i = 0; i < used; i++) {
       const sub = subjects[i];
-      const sim = profiles.simulate(svc.code);
-      insRec.run(svc.id, sub.id, sim.status, sim.result, JSON.stringify(sim.data));
+      let sim, data = {};
+      for (const p of periods) {
+        sim = profiles.simulate(svc.code);
+        data = { ...data, ...sim.data };
+        insHist.run(svc.id, sub.id, p, sim.status, sim.result, JSON.stringify(sim.data), `${p}-15 10:00:00`);
+      }
+      insRec.run(svc.id, sub.id, sim.status, sim.result, JSON.stringify(data));
       const ex = insExec.run(svc.id, sub.id, sim.ok ? 'kryer' : 'deshtoi', 1, rnd(0, 60000), rnd(8000, 20000), sim.result, 'admin@finbot.al');
       insLog.run(ex.lastInsertRowid, 'info', 'Nisi ekzekutimi i robotit.');
       insLog.run(ex.lastInsertRowid, sim.ok ? 'info' : 'error', sim.ok ? 'Të dhënat u përpunuan me sukses.' : 'Dështoi lidhja me portalin.');

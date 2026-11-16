@@ -15,6 +15,7 @@
 const db = require('./db');
 const { decrypt } = require('./crypto');
 const profiles = require('./profiles');
+const { schemaFor } = require('./service-schema');
 
 let robots = {};
 try { robots = require('./robots'); } catch (e) { robots = {}; }
@@ -35,7 +36,7 @@ async function runRobotSimulated(service, subject) {
   if (Math.random() < 0.1) {
     return { ok: false, process_ms: rnd(8000, 20000), result: 'Dështoi — gabim gjatë lidhjes me portalin', status: 'deshtoi', data: {} };
   }
-  const sim = profiles.simulate(service.code);
+  const sim = profiles.simulate(service.code, service.__action);
   return { ok: sim.ok, process_ms: rnd(8000, 20000), result: sim.result, status: sim.ok ? sim.status : 'deshtoi', data: sim.data };
 }
 
@@ -46,8 +47,12 @@ async function processOne(execId) {
   const service = db.prepare('SELECT * FROM services WHERE id=?').get(ex.service_id);
   const subject = db.prepare('SELECT * FROM subjects WHERE id=?').get(ex.subject_id);
 
-  db.prepare("UPDATE executions SET status='ne_ekzekutim', started_at=datetime('now'), attempts=attempts+1 WHERE id=?").run(execId);
-  log(execId, 'info', `Nisi roboti "${service.name}" për subjektin "${subject ? subject.name : '?'}".`);
+  db.prepare(`UPDATE executions SET status='ne_ekzekutim', started_at=datetime('now'), attempts=attempts+1,
+    wait_ms=CAST((julianday('now')-julianday(created_at))*86400000 AS INTEGER) WHERE id=?`).run(execId);
+  const schema = schemaFor(service.code);
+  const act = ex.action ? schema.actions.find(a => a.key === ex.action) : null;
+  service.__action = ex.action || null;
+  log(execId, 'info', `Nisi roboti "${service.name}"${act ? ' — ' + act.label : ''} për subjektin "${subject ? subject.name : '?'}".`);
 
   if (subject && !subject.ealbania_pass) {
     log(execId, 'warn', 'Subjekti nuk ka fjalëkalim e-Albania të ruajtur — përdoret modaliteti i simuluar.');
@@ -60,25 +65,37 @@ async function processOne(execId) {
     if (connector && typeof connector.run === 'function') {
       // Konektori real merr kredencialet e dekriptuara.
       const creds = subject ? { user: subject.ealbania_user, pass: decrypt(subject.ealbania_pass) } : {};
-      out = await connector.run(subject, creds, service);
+      out = await connector.run(subject, creds, service, ex.action || null);
     } else {
       out = await runRobotSimulated(service, subject);
     }
 
+    // Ekzekutimi mund të jetë ndaluar ndërkohë nga përdoruesi → mos e mbishkruaj
+    if (db.prepare('SELECT status FROM executions WHERE id=?').get(execId).status === 'anuluar') {
+      db.prepare("UPDATE client_requests SET status='anuluar' WHERE execution_id=?").run(execId);
+      return;
+    }
     const finalStatus = out.ok ? 'kryer' : 'deshtoi';
     db.prepare("UPDATE executions SET status=?, process_ms=?, result=?, finished_at=datetime('now') WHERE id=?")
       .run(finalStatus, out.process_ms || null, out.result || null, execId);
-    log(execId, out.ok ? 'info' : 'error', out.result || (out.ok ? 'Përfundoi.' : 'Dështoi.'));
+    log(execId, out.ok ? (out.status === 'deklaruar' || out.status === 'kryer' ? 'success' : 'info') : 'error', out.result || (out.ok ? 'Përfundoi.' : 'Dështoi.'));
 
-    // Përditëso rekordin subjekt×shërbim
+    // Përditëso rekordin subjekt×shërbim (të dhënat e reja BASHKOHEN me ato ekzistuese)
     if (subject) {
       const recStatus = out.status || finalStatus;
+      const prev = db.prepare('SELECT data, period_from FROM service_records WHERE service_id=? AND subject_id=?').get(ex.service_id, ex.subject_id);
+      const merged = { ...(prev && prev.data ? JSON.parse(prev.data) : {}), ...(out.data || {}) };
       db.prepare(`
         INSERT INTO service_records (service_id, subject_id, status, result, data, updated_at)
         VALUES (?,?,?,?,?,datetime('now'))
         ON CONFLICT(service_id, subject_id) DO UPDATE SET status=excluded.status, result=excluded.result, data=excluded.data, updated_at=datetime('now')
-      `).run(ex.service_id, ex.subject_id, recStatus, out.result || null, JSON.stringify(out.data || {}));
+      `).run(ex.service_id, ex.subject_id, recStatus, out.result || null, JSON.stringify(merged));
+      const period = (prev && prev.period_from ? prev.period_from : new Date().toISOString()).slice(0, 7);
+      db.prepare('INSERT INTO record_history (service_id, subject_id, period, action, status, result, data) VALUES (?,?,?,?,?,?,?)')
+        .run(ex.service_id, ex.subject_id, period, ex.action || null, recStatus, out.result || null, JSON.stringify(out.data || {}));
     }
+    // Kërkesat e klientit të lidhura me këtë ekzekutim
+    db.prepare('UPDATE client_requests SET status=? WHERE execution_id=?').run(finalStatus, execId);
 
     // Njoftim automatik kur ekzekutimi dështon
     if (!out.ok) {
@@ -91,6 +108,7 @@ async function processOne(execId) {
   } catch (e) {
     db.prepare("UPDATE executions SET status='deshtoi', result=?, finished_at=datetime('now') WHERE id=?").run(String(e.message || e), execId);
     log(execId, 'error', 'Gabim: ' + (e.message || e));
+    db.prepare("UPDATE client_requests SET status='deshtoi' WHERE execution_id=?").run(execId);
   } finally {
     running--;
   }

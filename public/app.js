@@ -196,7 +196,7 @@ function route() {
   const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', subject: 'Subjekti', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
   $('#pageTitle').textContent = titles[key] || 'Finbot';
   $('#view').innerHTML = '<div class="empty">Duke ngarkuar…</div>';
-  fn($('#view'), parts[1]);
+  fn($('#view'), parts[1], parts[2]);
 }
 
 /* ============ Modal ============ */
@@ -290,76 +290,270 @@ async function viewServices(el) {
   };
 }
 
-async function viewServiceDetail(el, id) {
-  const s = await api.get('/services/' + id);
-  const subjects = await api.get('/subjects');
-  const notInService = subjects.filter(sub => !s.records.find(r => r.subject_id === sub.id));
-  el.innerHTML = `
-    <button class="btn ghost sm" id="back" style="margin-bottom:14px">&larr; Shërbimet</button>
-    <div class="card">
-      <div class="card-head">
-        <div><h3>${esc(s.name)}</h3><div class="muted" style="font-size:13px;margin-top:2px">${esc(s.description || '')}</div></div>
-        <div style="display:flex;gap:8px">
-          ${can('accountant') ? `<button class="btn" id="runAll">${I.play} Ekzekuto të gjitha</button>` : ''}
-          ${can('accountant') ? `<button class="btn ghost" id="addSub">${I.plus} Shto subjekt</button>` : ''}
-          <button class="btn ghost" id="exp">Eksporto</button>
-          <button class="btn ghost" id="pdfAll">PDF</button>
-          <button class="btn ghost" id="zipAll">ZIP</button>
-          <button class="btn ghost" id="refresh">Rifresko</button>
-        </div>
-      </div>
-      <div class="card-body" style="padding:0">
-        <table>
-          <thead><tr><th>#</th><th>Statusi subjektit</th><th>Emri</th><th>NIPT</th><th>Përditësuar</th><th>Rezultati</th><th class="num">Vlera kryesore</th><th></th></tr></thead>
-          <tbody id="rows">${s.records.length ? s.records.map((r, i) => `<tr>
-            <td class="muted">${i + 1}</td>
-            <td><span class="badge ${r.subject_status === 'active' ? 'b-active' : 'b-cancelled'}">${r.subject_status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></td>
-            <td><b>${esc(r.subject_name)}</b></td><td class="muted">${esc(r.nipt || '—')}</td>
-            <td class="muted">${timeAgo(r.updated_at)}</td><td>${badge(REC_ST, r.status)}</td>
-            <td class="num">${primaryValue(r.data)}</td>
-            <td class="num">
-              ${can('accountant') ? `<button class="btn ghost sm" data-run="${r.subject_id}">${I.play}</button>` : ''}
-              <button class="btn ghost sm" data-pdf="${r.subject_id}">PDF</button>
-              <button class="btn ghost sm" data-det="${r.subject_id}">Detaje</button>
-            </td></tr>`).join('') : '<tr><td colspan="8"><div class="empty">Asnjë subjekt te ky shërbim. Shtoni një.</div></td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>`;
-  $('#back').onclick = () => location.hash = '#/services';
-  $('#refresh').onclick = () => viewServiceDetail(el, id);
-  $('#exp').onclick = () => downloadFile('/services/' + id + '/export', 'sherbimi-' + id + '.csv');
-  $('#pdfAll').onclick = () => downloadFile('/services/' + id + '/pdf', 'deklaratat.pdf');
-  $('#zipAll').onclick = () => downloadFile('/services/' + id + '/zip', 'deklaratat.zip');
-  $$('[data-pdf]', el).forEach(b => b.onclick = () => downloadFile('/services/' + id + '/records/' + b.dataset.pdf + '/pdf', 'deklarate.pdf'));
-  if ($('#runAll')) $('#runAll').onclick = async () => {
-    if (!s.records.length) return toast('Shto subjekte fillimisht', true);
-    const r = await api.post('/services/' + id + '/run', {}); toast(`U futën në radhë ${r.queued} ekzekutime`); location.hash = '#/automation';
-  };
-  if ($('#addSub')) $('#addSub').onclick = () => {
-    if (!notInService.length) return toast('Të gjitha subjektet janë shtuar', true);
-    modal('Shto subjekt te shërbimi', `<div class="field"><label>Subjekti</label><select id="ss">${notInService.map(x => `<option value="${x.id}">${esc(x.name)} ${x.nipt ? '(' + esc(x.nipt) + ')' : ''}</option>`).join('')}</select></div>`, {
-      saveLabel: 'Shto', onSave: async bg => { await api.post('/services/' + id + '/subjects', { subject_id: Number($('#ss', bg).value) }); toast('U shtua'); viewServiceDetail(el, id); }
-    });
-  };
-  $$('[data-run]', el).forEach(b => b.onclick = async () => { await api.post('/services/' + id + '/run', { subject_ids: [Number(b.dataset.run)] }); toast('U fut në radhë'); location.hash = '#/automation'; });
-  $$('[data-det]', el).forEach(b => b.onclick = () => {
-    const r = s.records.find(x => x.subject_id == b.dataset.det);
-    const d = r.data || {};
-    modal('Detaje — ' + r.subject_name, `
-      <div class="row3" style="margin-bottom:10px">
-        <div><div class="muted">Statusi</div>${badge(REC_ST, r.status)}</div>
-        <div><div class="muted">Përditësuar</div>${timeAgo(r.updated_at)}</div>
-        <div><div class="muted">Rezultati</div>${esc(r.result || '—')}</div>
-      </div>
-      <table style="border:1px solid var(--border);border-radius:8px">${renderDataRows(d)}</table>
-      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
-        ${can('accountant') ? `<button class="btn" id="mrun">${I.play} Ekzekuto</button>` : ''}
-        <button class="btn ghost" id="mpdf">Shkarko PDF</button>
-      </div>`, {}).bg.addEventListener('click', ev => {
-        if (ev.target.id === 'mrun') { api.post('/services/' + s.id + '/run', { subject_ids: [r.subject_id] }).then(() => { toast('U fut në radhë'); location.hash = '#/automation'; }); }
-        if (ev.target.id === 'mpdf') { downloadFile('/services/' + s.id + '/records/' + r.subject_id + '/pdf', 'deklarate.pdf'); }
-      });
+/* ---------- Ndihmës për menutë rënëse dhe vlerat e shërbimeve ---------- */
+function dropdown(btn, items) {
+  closeDropdowns();
+  const m = document.createElement('div'); m.className = 'dd-menu';
+  items.filter(Boolean).forEach(it => {
+    if (it.sep) { m.insertAdjacentHTML('beforeend', '<div class="dd-sep"></div>'); return; }
+    const b = document.createElement('button'); b.className = 'dd-item' + (it.danger ? ' danger' : '');
+    b.innerHTML = (it.icon || '') + '<span>' + esc(it.label) + '</span>';
+    b.onclick = e => { e.stopPropagation(); closeDropdowns(); it.onClick(); };
+    m.appendChild(b);
   });
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect();
+  const left = Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - m.offsetWidth - 8);
+  m.style.top = (r.bottom + window.scrollY + 6) + 'px'; m.style.left = Math.max(8, left) + 'px';
+  setTimeout(() => document.addEventListener('click', closeDropdowns, { once: true }), 0);
+}
+function closeDropdowns() { $$('.dd-menu').forEach(m => m.remove()); }
+
+const VAL_BADGE = v => /dështoi|nuk përputhet|nuk plotëson|nuk vendoset|paregjistruar|pa deklaruar/i.test(v) ? 'b-overdue'
+  : /kryer|deklaruar|përputhet|plotëson/i.test(v) ? 'b-paid' : 'b-draft';
+function fmtValue(col, v) {
+  if (v == null || v === '') return '<span class="muted">—</span>';
+  if (col.type === 'money') return `<span class="${Number(v) < 0 ? 'neg' : ''}">${nf(v)}</span>`;
+  if (col.type === 'num') return nf(v);
+  if (col.type === 'status') return `<span class="badge ${VAL_BADGE(v)}">${esc(v)}</span>`;
+  return `<span class="badge ${VAL_BADGE(v)}">${esc(v)}</span>`;
+}
+function pickFile(accept) {
+  return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
+}
+const fmtDate = d => d ? d.split('-').reverse().join('.') : '';
+const ICO = {
+  panel: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+  filter: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
+  up: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3M7 8l5-5 5 5M5 21h14"/></svg>',
+  down: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
+  cal: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  book: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></svg>',
+  caret: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>',
+};
+
+/* ============ Faqja e shërbimit ============ */
+async function viewServiceDetail(el, id) {
+  // gjendja e faqes (ruhet gjatë rifreskimeve)
+  const st = { q: '', recSt: '', subSt: '', sort: 'subject_name', dir: 1, details: false, panel: false, filters: false };
+  try { Object.assign(st, JSON.parse(sessionStorage.getItem('svc-ui-' + id) || '{}'), { q: '' }); } catch (e) {}
+  const save = () => { try { sessionStorage.setItem('svc-ui-' + id, JSON.stringify({ details: st.details, panel: st.panel, sort: st.sort, dir: st.dir })); } catch (e) {} };
+  let s;
+
+  // soft = rifreskim automatik: përditëso vetëm tabelën dhe numëruesit (pa prekur kërkimin/menutë)
+  async function load(soft) {
+    s = await api.get('/services/' + id);
+    if (location.hash.split('/')[1] !== 'service' || location.hash.split('/')[2] !== String(id)) return; // përdoruesi ka ikur
+    if (soft && $('.svc-toolbar', el)) paintDynamic(); else paint();
+    if (AUTO_TIMER) { clearInterval(AUTO_TIMER); AUTO_TIMER = null; }
+    if (s.active_executions > 0) AUTO_TIMER = setInterval(() => { if (!$('.modal-bg')) load(true).catch(() => {}); }, 4000);
+  }
+  function paintDynamic() {
+    $('#headBadge').innerHTML = s.active_executions ? `<span class="badge b-sent pulse">${s.active_executions} në ekzekutim</span>` : '';
+    if ($('#stopBtn')) $('#stopBtn').disabled = !s.active_executions;
+    $('#panel').innerHTML = panelHtml();
+    paintRows();
+  }
+  function panelHtml() {
+    const quotaPct = Math.min(100, Math.round((s.used / (s.max_limit || 1)) * 100));
+    const periods = [...new Set(s.records.map(r => r.period_from ? fmtDate(r.period_from) + ' – ' + fmtDate(r.period_to) : null).filter(Boolean))];
+    return `
+      <div><div class="muted">Kuota mujore</div><b>${s.used} / ${s.max_limit}</b><div class="qbar"><div class="qfill" style="width:${quotaPct}%"></div></div></div>
+      <div><div class="muted">Rinovohet më</div><b>${esc(fmtDate(s.renews_at) || '—')}</b></div>
+      <div><div class="muted">Skadon më</div><b>${esc(fmtDate(s.expires_at) || '—')}</b></div>
+      <div><div class="muted">Në ekzekutim</div><b>${s.active_executions}</b></div>
+      <div><div class="muted">Periudha</div><b>${periods.length === 1 ? esc(periods[0]) : periods.length ? 'Të ndryshme' : 'Pa caktuar'}</b></div>
+      <div><div class="muted">Veprimet</div><b>${s.actions.map(a => esc(a.label)).join(' · ')}</b></div>`;
+  }
+
+  const cell = (r, k) => k === 'subject_name' ? r.subject_name : k === 'nipt' ? r.nipt : k === 'updated_at' ? r.updated_at
+    : k === 'subject_status' ? r.subject_status : k === 'status' ? r.status : r.data[k];
+
+  function visibleRows() {
+    const q = st.q.trim().toLowerCase();
+    let rows = s.records.filter(r => {
+      if (st.recSt && r.status !== st.recSt) return false;
+      if (st.subSt && r.subject_status !== st.subSt) return false;
+      if (!q) return true;
+      return [r.subject_name, r.nipt, r.result, REC_ST[r.status] && REC_ST[r.status][0], ...Object.values(r.data)].some(v => String(v == null ? '' : v).toLowerCase().includes(q));
+    });
+    rows = rows.slice().sort((a, b) => {
+      const x = cell(a, st.sort), y = cell(b, st.sort);
+      if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'sq')) * st.dir;
+    });
+    return rows;
+  }
+
+  function paint() {
+    const acc = can('accountant');
+    const cols = s.columns;
+    const head = [['#', null], ['Statusi i subjektit', 'subject_status'], ['Emri i subjektit', 'subject_name'], ['NIPT', 'nipt'], ['Përditësuar', 'updated_at'], ['Statusi', 'status'],
+      ...cols.map(c => [c.label, c.key, c.type === 'money' || c.type === 'num']),
+      ...(st.details ? [['Rezultati', null], ['Periudha', null]] : []), ['', null]];
+    el.innerHTML = `
+      <button class="btn ghost sm" id="back" style="margin-bottom:14px">&larr; Shërbimet</button>
+      <div class="page-head"><div><h1>${esc(s.name)}</h1><p class="muted">${esc(s.description || '')}</p></div>
+        <div id="headBadge">${s.active_executions ? `<span class="badge b-sent pulse">${s.active_executions} në ekzekutim</span>` : ''}</div></div>
+      <div class="card">
+        <div class="svc-toolbar">
+          <div class="tb-search"><input class="search" id="q" placeholder="Kërko subjekt, NIPT, status ose vlerë…" value="${esc(st.q)}">
+            <button class="btn ghost icon ${st.filters || st.recSt || st.subSt ? 'on' : ''}" id="fbtn" title="Filtra">${ICO.filter}<span>Filtra</span></button></div>
+          <div class="tb-actions">
+            <button class="btn ghost ${st.panel ? 'on' : ''}" id="panelBtn">${ICO.panel}<span>Shfaq panelin</span></button>
+            ${acc ? `<button class="btn green" id="addSub">${I.plus}<span>Shto subjekt</span></button>` : ''}
+            ${acc ? `<button class="btn ghost" id="impBtn">${ICO.up}<span>Importo</span>${ICO.caret}</button>` : ''}
+            <button class="btn ghost" id="expBtn">${ICO.down}<span>Eksporto</span>${ICO.caret}</button>
+            ${acc ? `<button class="btn ghost" id="datesBtn">${ICO.cal}<span>Datat masive</span></button>` : ''}
+            ${acc ? `<button class="btn" id="actBtn">${ICO.bolt}<span>Veprime</span>${ICO.caret}</button>` : ''}
+            <button class="btn ghost" id="refresh">${ICO.refresh}<span>Rifresko</span></button>
+            ${acc ? `<button class="btn danger" id="stopBtn" ${s.active_executions ? '' : 'disabled'}>${ICO.stop}<span>Ndalo</span></button>` : ''}
+            ${s.guide ? `<button class="btn ghost icon" id="guideBtn" title="Udhëzuesi">${ICO.book}</button>` : ''}
+          </div>
+        </div>
+        <div class="filters" ${st.filters ? '' : 'hidden'}>
+          <label>Statusi i rezultatit<select id="fRec"><option value="">Të gjitha</option>${Object.entries(REC_ST).map(([k, v]) => `<option value="${k}" ${st.recSt === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+          <label>Statusi i subjektit<select id="fSub"><option value="">Të gjitha</option><option value="active" ${st.subSt === 'active' ? 'selected' : ''}>Aktiv</option><option value="inactive" ${st.subSt === 'inactive' ? 'selected' : ''}>Joaktiv</option></select></label>
+          <button class="btn ghost sm" id="fClear">Pastro</button>
+        </div>
+        <div class="svc-panel" id="panel" ${st.panel ? '' : 'hidden'}>${panelHtml()}</div>
+        <div class="tbl-meta">
+          <label class="check"><input type="checkbox" id="det" ${st.details ? 'checked' : ''}> Shfaq detajet e rezultateve</label>
+          <span class="muted" id="count"></span>
+        </div>
+        <div class="tbl-wrap"><table class="svc-table">
+          <thead><tr>${head.map(([l, k, n]) => `<th class="${k ? 'sortable' : ''} ${n ? 'num' : ''}" ${k ? `data-sort="${k}"` : ''}>${esc(l)}${k && st.sort === k ? (st.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+          <tbody id="rows"></tbody></table></div>
+      </div>`;
+    paintRows();
+    bind();
+  }
+
+  function paintRows() {
+    const acc = can('accountant');
+    const rows = visibleRows();
+    const def = s.actions[0];
+    $('#count').textContent = `${rows.length} / ${s.records.length}`;
+    const span = 7 + s.columns.length + (st.details ? 2 : 0);
+    $('#rows').innerHTML = rows.length ? rows.map((r, i) => {
+      const running = s.running_subjects.includes(r.subject_id);
+      return `<tr data-open="${r.subject_id}" class="clickable">
+        <td class="muted">${i + 1}</td>
+        <td><span class="badge ${r.subject_status === 'active' ? 'b-active' : 'b-cancelled'}">${r.subject_status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></td>
+        <td><b>${esc(r.subject_name)}</b></td>
+        <td class="muted">${esc(r.nipt || '—')}</td>
+        <td class="muted nowrap">${timeAgo(r.updated_at)}</td>
+        <td>${running ? '<span class="badge b-sent pulse">Në ekzekutim</span>' : badge(REC_ST, r.status)}</td>
+        ${s.columns.map(c => `<td class="${c.type === 'money' || c.type === 'num' ? 'num' : ''}">${fmtValue(c, r.data[c.key])}</td>`).join('')}
+        ${st.details ? `<td class="muted small">${esc(r.result || '—')}</td><td class="muted nowrap small">${r.period_from ? fmtDate(r.period_from) + ' – ' + fmtDate(r.period_to) : '—'}</td>` : ''}
+        <td class="num nowrap">
+          ${acc ? `<button class="btn ghost sm" data-run="${r.subject_id}" title="${esc(def.label)}" ${running ? 'disabled' : ''}>${I.play}</button>` : ''}
+          <button class="btn ghost sm" data-open="${r.subject_id}">Hap</button>
+        </td></tr>`;
+    }).join('') : `<tr><td colspan="${span}"><div class="empty">${s.records.length ? 'Asnjë rezultat për këtë kërkim/filtër.' : 'Asnjë subjekt te ky shërbim. Shtoni ose importoni subjekte.'}</div></td></tr>`;
+    $$('#rows [data-open]').forEach(b => b.onclick = e => { if (e.target.closest('[data-run]')) return; e.stopPropagation(); location.hash = `#/record/${s.id}/${b.dataset.open}`; });
+    $$('#rows [data-run]').forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      try { await api.post(`/services/${s.id}/run`, { subject_ids: [Number(b.dataset.run)], action: def.key }); toast(`${def.label}: u fut në radhë`); load(); } catch (err) { toast(err.message, true); }
+    });
+  }
+
+  function bind() {
+    const acc = can('accountant');
+    $('#back').onclick = () => location.hash = '#/services';
+    let t; $('#q').oninput = e => { st.q = e.target.value; clearTimeout(t); t = setTimeout(paintRows, 120); };
+    $('#fbtn').onclick = () => { st.filters = !st.filters; paint(); };
+    $('#fRec').onchange = e => { st.recSt = e.target.value; paintRows(); };
+    $('#fSub').onchange = e => { st.subSt = e.target.value; paintRows(); };
+    $('#fClear').onclick = () => { st.recSt = st.subSt = st.q = ''; paint(); };
+    $('#panelBtn').onclick = () => { st.panel = !st.panel; save(); paint(); };
+    $('#det').onchange = e => { st.details = e.target.checked; save(); paint(); };
+    $('#refresh').onclick = () => load().then(() => toast('U rifreskua'));
+    $$('th[data-sort]').forEach(th => th.onclick = () => { const k = th.dataset.sort; st.dir = st.sort === k ? -st.dir : 1; st.sort = k; save(); paint(); });
+    if ($('#guideBtn')) $('#guideBtn').onclick = () => modal('Udhëzuesi — ' + s.name, `<p style="margin-top:0;line-height:1.6">${esc(s.guide)}</p>
+      <h4 style="margin:16px 0 6px">Veprimet</h4><ul style="margin:0;padding-left:18px;line-height:1.8">${s.actions.map(a => `<li>${esc(a.label)}</li>`).join('')}</ul>
+      <h4 style="margin:16px 0 6px">Hapat</h4><ol style="margin:0;padding-left:18px;line-height:1.8"><li>Shto ose importo subjektet (me fjalëkalimin e-Albania te "Subjektet").</li><li>Vendos periudhën me "Datat masive".</li><li>Nis një veprim nga "Veprime" ose ▶ te rreshti.</li><li>Ndiq ecurinë këtu ose te "Automatizimi"; hap rreshtin për detajet.</li></ol>`);
+
+    $('#expBtn').onclick = e => { e.stopPropagation(); dropdown(e.currentTarget, [
+      { label: 'Eksporto CSV', onClick: () => downloadFile(`/services/${s.id}/export`, s.code + '.csv') },
+      { label: 'Të gjitha në një PDF', onClick: () => downloadFile(`/services/${s.id}/pdf`, s.code + '-deklaratat.pdf') },
+      { label: 'Një PDF për subjekt (.zip)', onClick: () => downloadFile(`/services/${s.id}/zip`, s.code + '-deklaratat.zip') },
+    ]); };
+    if (!acc) return;
+
+    $('#addSub').onclick = async () => {
+      const subjects = await api.get('/subjects');
+      const free = subjects.filter(x => !s.records.find(r => r.subject_id === x.id));
+      if (!free.length) return toast('Të gjitha subjektet janë shtuar', true);
+      modal('Shto subjekte te shërbimi', `
+        <input class="search" id="ssq" placeholder="Kërko…" style="width:100%;margin-bottom:10px">
+        <label class="check" style="margin-bottom:8px"><input type="checkbox" id="ssall"> Zgjidh të gjitha</label>
+        <div class="pick-list">${free.map(x => `<label class="check pick" data-txt="${esc((x.name + ' ' + (x.nipt || '')).toLowerCase())}"><input type="checkbox" value="${x.id}"> <b>${esc(x.name)}</b> <span class="muted">${esc(x.nipt || '')}</span></label>`).join('')}</div>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">Kuota: ${s.used} / ${s.max_limit}. Subjekte të reja krijohen te "Subjektet".</p>`, {
+        saveLabel: 'Shto', onSave: async bg => {
+          const ids = $$('.pick input:checked', bg).map(i => Number(i.value));
+          if (!ids.length) throw new Error('Zgjidhni të paktën një subjekt');
+          const r = await api.post(`/services/${s.id}/subjects`, { subject_ids: ids });
+          toast(`U shtuan ${r.added}${r.full ? ` · ${r.full} jashtë kuotës` : ''}`); load();
+        } });
+      const bg = $('.modal-bg:last-child');
+      $('#ssq', bg).oninput = e => { const q = e.target.value.toLowerCase(); $$('.pick', bg).forEach(p => p.hidden = !p.dataset.txt.includes(q)); };
+      $('#ssall', bg).onchange = e => $$('.pick', bg).forEach(p => { if (!p.hidden) p.querySelector('input').checked = e.target.checked; });
+    };
+
+    $('#impBtn').onclick = e => { e.stopPropagation(); dropdown(e.currentTarget, [
+      { label: 'Importo nga skedar CSV', onClick: async () => {
+        const f = await pickFile('.csv,text/csv'); if (!f) return;
+        try { const r = await api.post(`/services/${s.id}/import`, { csv: await f.text() });
+          toast(`U shtuan ${r.added} subjekte (${r.created} të reja${r.skipped ? `, ${r.skipped} ekzistonin` : ''}${r.full ? `, ${r.full} jashtë kuotës` : ''}${r.invalid ? `, ${r.invalid} rreshta të pavlefshëm` : ''})`); load();
+        } catch (err) { toast(err.message, true); } } },
+      { label: 'Importo nga shërbimet e tjera', onClick: async () => {
+        const list = (await api.get('/services')).filter(x => x.id !== s.id);
+        modal('Importo nga një shërbim tjetër', `<div class="field"><label>Shërbimi burim</label><select id="src">${list.map(x => `<option value="${x.id}">${esc(x.name)} (${x.used})</option>`).join('')}</select></div>
+          <p class="muted" style="font-size:12.5px;margin:0">Subjektet e atij shërbimi shtohen këtu (brenda kuotës). Ato që ekzistojnë kapërcehen.</p>`, {
+          saveLabel: 'Importo', onSave: async bg => { const r = await api.post(`/services/${s.id}/import-from`, { source_service_id: Number($('#src', bg).value) });
+            toast(`U shtuan ${r.added}${r.skipped ? ` · ${r.skipped} ekzistonin` : ''}${r.full ? ` · ${r.full} jashtë kuotës` : ''}`); load(); } });
+      } },
+      { sep: true },
+      { label: 'Shkarko template importi', onClick: () => downloadFile(`/services/${s.id}/import-template`, `template-${s.code}.csv`) },
+    ]); };
+
+    $('#datesBtn').onclick = () => {
+      const cur = s.records.find(r => r.period_from) || {};
+      modal('Vendos datat për të gjitha regjistrimet', `
+        <div class="row2"><div class="field"><label>Data e fillimit</label><input type="date" id="dfrom" value="${esc(cur.period_from || '')}"></div>
+        <div class="field"><label>Data e mbarimit</label><input type="date" id="dto" value="${esc(cur.period_to || '')}"></div></div>
+        <div class="chips">${[['Muaji i kaluar', -1], ['Ky muaj', 0], ['Ky vit', 'y']].map(([l, v]) => `<button class="chip" data-p="${v}">${l}</button>`).join('')}</div>
+        <p class="muted" style="font-size:12.5px;margin:10px 0 0">Periudha vendoset për të ${s.records.length} subjektet e shërbimit dhe përdoret nga robotët dhe PDF-të.</p>`, {
+        saveLabel: 'Ruaj', onSave: async bg => { const r = await api.post(`/services/${s.id}/bulk-dates`, { from: $('#dfrom', bg).value, to: $('#dto', bg).value }); toast(`Periudha u vendos për ${r.updated} subjekte`); load(); } });
+      const bg = $('.modal-bg:last-child');
+      const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      $$('.chip', bg).forEach(c => c.onclick = () => {
+        const n = new Date(); let a, b;
+        if (c.dataset.p === 'y') { a = new Date(n.getFullYear(), 0, 1); b = new Date(n.getFullYear(), 11, 31); }
+        else { const m = n.getMonth() + Number(c.dataset.p); a = new Date(n.getFullYear(), m, 1); b = new Date(n.getFullYear(), m + 1, 0); }
+        $('#dfrom', bg).value = iso(a); $('#dto', bg).value = iso(b);
+      });
+    };
+
+    $('#actBtn').onclick = e => { e.stopPropagation(); dropdown(e.currentTarget, [
+      ...s.actions.map(a => ({ label: a.label + ' — të gjitha', icon: I.play, onClick: async () => {
+        try { const r = await api.post(`/services/${s.id}/run`, { action: a.key }); toast(`${a.label}: ${r.queued} në radhë`); load(); } catch (err) { toast(err.message, true); } } })),
+      { label: 'Ekzekuto për të gjitha subjektet aktive të studios', icon: I.play, onClick: () => confirmBox(`Të shtohen te ky shërbim dhe të ekzekutohen të gjitha subjektet aktive (brenda kuotës ${s.max_limit})?`, async () => {
+        const r = await api.post(`/services/${s.id}/run`, { all: true, action: s.actions[0].key }); toast(`${r.queued} në radhë`); load(); }) },
+      { sep: true },
+      { label: 'Fshi të gjitha subjektet', icon: ICO.trash, danger: true, onClick: () => confirmBox(`Të hiqen të ${s.records.length} subjektet nga ky shërbim? Subjektet mbeten te "Subjektet", por rezultatet e këtij shërbimi fshihen.`, async () => {
+        const r = await api.del(`/services/${s.id}/subjects`); toast(`U hoqën ${r.removed} subjekte`); load(); }, { danger: true }) },
+    ]); };
+
+    $('#stopBtn').onclick = () => confirmBox(`Të ndalohen ${s.active_executions} ekzekutimet e këtij shërbimi?`, async () => { const r = await api.post(`/services/${s.id}/stop`); toast(`U ndaluan ${r.stopped}`); load(); }, { danger: true });
+  }
+
+  await load();
 }
 
 /* ============ Subjects ============ */
