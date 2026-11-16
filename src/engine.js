@@ -95,7 +95,8 @@ async function processOne(execId) {
         .run(ex.service_id, ex.subject_id, period, ex.action || null, recStatus, out.result || null, JSON.stringify(out.data || {}));
     }
     // Kërkesat e klientit të lidhura me këtë ekzekutim
-    db.prepare('UPDATE client_requests SET status=? WHERE execution_id=?').run(finalStatus, execId);
+    db.prepare("UPDATE client_requests SET status=?, result=?, data=?, finished_at=datetime('now') WHERE execution_id=?")
+      .run(finalStatus, out.result || null, JSON.stringify(out.data || {}), execId);
 
     // Njoftim automatik kur ekzekutimi dështon
     if (!out.ok) {
@@ -117,7 +118,8 @@ async function processOne(execId) {
 function tick() {
   if (running >= CONCURRENCY) return;
   const slots = CONCURRENCY - running;
-  const pending = db.prepare("SELECT id FROM executions WHERE status='ne_radhe' ORDER BY id LIMIT ?").all(slots);
+  // Kërkesat nga portali i klientit kanë përparësi (klienti pret para ekranit)
+  const pending = db.prepare("SELECT id FROM executions WHERE status='ne_radhe' ORDER BY (run_by LIKE 'klient:%') DESC, id LIMIT ?").all(slots);
   for (const p of pending) {
     // shëno menjëherë që të mos merret dy herë
     db.prepare("UPDATE executions SET status='duke_riprovuar' WHERE id=? AND status='ne_radhe'").run(p.id);

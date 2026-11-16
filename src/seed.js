@@ -80,6 +80,17 @@ if (db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
     .run('Mirë se vini në Finbot', 'Platforma u konfigurua. Shtoni subjektet dhe nisni shërbimet.', 'info');
 }
 
+// Llogari demo për portalin e klientit (biznesi i parë) — vetëm kur nuk jemi në prodhim
+const CLIENT_EMAIL = process.env.CLIENT_EMAIL || 'klient@finbot.al';
+const CLIENT_PASS = process.env.CLIENT_PASS || 'Klient1234!';
+if (process.env.NODE_ENV !== 'production' && !db.prepare('SELECT id FROM users WHERE email=?').get(CLIENT_EMAIL)) {
+  const first = db.prepare('SELECT id FROM subjects ORDER BY id LIMIT 1').get();
+  if (first) db.prepare("INSERT INTO users (name,email,password_hash,role,created_by,subject_id) VALUES (?,?,?,'client',?,?)")
+    .run('Klient demo', CLIENT_EMAIL, hashPassword(CLIENT_PASS), adminId, first.id);
+}
+
 console.log('\n  Të dhënat u mbollën me sukses.\n');
 console.log('  OWNER (i fshehtë):  ' + OWNER_EMAIL + '  /  ' + OWNER_PASS);
-console.log('  ADMIN:              ' + ADMIN_EMAIL + '  /  ' + ADMIN_PASS + '\n');
+console.log('  ADMIN:              ' + ADMIN_EMAIL + '  /  ' + ADMIN_PASS);
+if (process.env.NODE_ENV !== 'production') console.log('  KLIENT (portali):   ' + CLIENT_EMAIL + '  /  ' + CLIENT_PASS);
+console.log('');

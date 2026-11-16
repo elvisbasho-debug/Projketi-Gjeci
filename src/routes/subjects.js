@@ -3,7 +3,7 @@
 const express = require('express');
 const db = require('../db');
 const audit = require('../audit');
-const { requireRole } = require('../auth');
+const { requireRole, hashPassword } = require('../auth');
 const { encrypt, isSet } = require('../crypto');
 
 const router = express.Router();
@@ -123,9 +123,45 @@ router.put('/:id', requireRole('accountant'), (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---- Llogaritë e portalit të klientit për këtë subjekt ---- */
+router.get('/:id/clients', requireRole('accountant'), (req, res) => {
+  res.json(db.prepare("SELECT id, name, email, status, last_login, created_at FROM users WHERE role='client' AND subject_id=? ORDER BY id").all(req.params.id));
+});
+
+router.post('/:id/clients', requireRole('accountant'), (req, res) => {
+  const s = db.prepare('SELECT * FROM subjects WHERE id = ?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Subjekti nuk u gjet' });
+  const { name, email, password } = req.body || {};
+  if (!name || !email || !password) return res.status(400).json({ error: 'Plotësoni emrin, email-in dhe fjalëkalimin' });
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Email i pavlefshëm' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'Fjalëkalimi duhet të ketë të paktën 8 karaktere' });
+  if (db.prepare('SELECT id FROM users WHERE email = ?').get(email)) return res.status(409).json({ error: 'Ky email është i zënë' });
+  const info = db.prepare("INSERT INTO users (name, email, password_hash, role, created_by, subject_id) VALUES (?,?,?,'client',?,?)")
+    .run(name, email, hashPassword(password), req.user.id, s.id);
+  audit.log(req.user, 'krijoi_llogari_klienti', 'subjects', s.id, { email });
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+router.post('/:id/clients/:uid/status', requireRole('accountant'), (req, res) => {
+  const u = db.prepare("SELECT id FROM users WHERE id=? AND role='client' AND subject_id=?").get(req.params.uid, req.params.id);
+  if (!u) return res.status(404).json({ error: 'Llogaria nuk u gjet' });
+  const status = req.body && req.body.status === 'suspended' ? 'suspended' : 'active';
+  db.prepare('UPDATE users SET status=? WHERE id=?').run(status, u.id);
+  audit.log(req.user, 'ndryshoi_llogari_klienti', 'subjects', Number(req.params.id), { status });
+  res.json({ ok: true, status });
+});
+
+router.delete('/:id/clients/:uid', requireRole('accountant'), (req, res) => {
+  const n = db.prepare("DELETE FROM users WHERE id=? AND role='client' AND subject_id=?").run(req.params.uid, req.params.id).changes;
+  if (!n) return res.status(404).json({ error: 'Llogaria nuk u gjet' });
+  audit.log(req.user, 'fshiu_llogari_klienti', 'subjects', Number(req.params.id), null);
+  res.json({ ok: true });
+});
+
 router.delete('/:id', requireRole('accountant'), (req, res) => {
   const s = db.prepare('SELECT * FROM subjects WHERE id = ?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Subjekti nuk u gjet' });
+  db.prepare("DELETE FROM users WHERE role='client' AND subject_id = ?").run(s.id); // llogaritë e portalit
   db.prepare('DELETE FROM subjects WHERE id = ?').run(s.id);
   audit.log(req.user, 'fshiu_subjekt', 'subjects', s.id, { name: s.name });
   res.json({ ok: true });

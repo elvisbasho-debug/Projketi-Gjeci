@@ -141,6 +141,7 @@ const NAV = [
 ];
 
 function renderApp() {
+  if (ME.role === 'client') return renderClientPortal();
   root.innerHTML = `
     <div class="app">
       <aside class="sidebar" id="sidebar">
@@ -819,8 +820,130 @@ async function viewSubjectDetail(el, id) {
     </div>`;
   $('#back').onclick = () => location.hash = '#/subjects';
   if ($('#edit')) $('#edit').onclick = () => subjectForm(s);
+  if (can('accountant')) clientAccountsCard(el, s);
   $$('[data-run]', el).forEach(b => b.onclick = async () => { await api.post('/services/' + b.dataset.run + '/run', { subject_ids: [s.id] }); toast('U fut në radhë'); location.hash = '#/automation'; });
   $$('[data-pdf]', el).forEach(b => b.onclick = () => downloadFile('/services/' + b.dataset.pdf + '/records/' + s.id + '/pdf', 'deklarate.pdf'));
+}
+
+/* ---- Llogaritë e portalit të klientit (te faqja e subjektit) ---- */
+async function clientAccountsCard(el, s) {
+  const wrap = document.createElement('div');
+  wrap.className = 'card'; wrap.style.marginTop = '18px';
+  el.appendChild(wrap);
+  const paint = async () => {
+    const list = await api.get(`/subjects/${s.id}/clients`);
+    wrap.innerHTML = `
+      <div class="card-head"><div><h3>Portali i klientit</h3><div class="muted small" style="margin-top:2px">Biznesi hyn me llogarinë e vet dhe kërkon TVSH-në në kohë reale me një buton.</div></div>
+        <button class="btn" id="caAdd">${I.plus} Krijo llogari</button></div>
+      <div class="card-body" style="padding:0"><table>
+        <thead><tr><th>Emri</th><th>Email</th><th>Statusi</th><th>Hyrja e fundit</th><th></th></tr></thead>
+        <tbody>${list.length ? list.map(u => `<tr><td><b>${esc(u.name)}</b></td><td class="muted">${esc(u.email)}</td>
+          <td><span class="badge ${u.status === 'active' ? 'b-active' : 'b-suspended'}">${u.status === 'active' ? 'Aktive' : 'Pezulluar'}</span></td>
+          <td class="muted small">${esc(u.last_login || '—')}</td>
+          <td class="num nowrap"><button class="btn ghost sm" data-tog="${u.id}" data-st="${u.status}">${u.status === 'active' ? 'Pezullo' : 'Aktivizo'}</button>
+            <button class="btn ghost sm danger-text" data-del="${u.id}">Fshi</button></td></tr>`).join('')
+          : '<tr><td colspan="5"><div class="empty" style="padding:24px">Ky biznes nuk ka ende llogari në portal.</div></td></tr>'}</tbody></table></div>`;
+    $('#caAdd', wrap).onclick = () => modal('Llogari e re për ' + s.name, `
+      <div class="field"><label>Emri i personit</label><input id="caName" placeholder="p.sh. Administratori i biznesit"></div>
+      <div class="field"><label>Email (për hyrje)</label><input id="caEmail" type="email"></div>
+      <div class="field"><label>Fjalëkalimi fillestar (min. 8 karaktere)</label><input id="caPass" type="text" autocomplete="off"></div>
+      <p class="muted small" style="margin:0">Klienti sheh vetëm TVSH-në e biznesit të vet. Mund ta ndryshojë fjalëkalimin pas hyrjes.</p>`, {
+      saveLabel: 'Krijo', onSave: async bg => {
+        await api.post(`/subjects/${s.id}/clients`, { name: $('#caName', bg).value.trim(), email: $('#caEmail', bg).value.trim(), password: $('#caPass', bg).value });
+        toast('Llogaria u krijua'); paint();
+      } });
+    $$('[data-tog]', wrap).forEach(b => b.onclick = async () => { await api.post(`/subjects/${s.id}/clients/${b.dataset.tog}/status`, { status: b.dataset.st === 'active' ? 'suspended' : 'active' }); paint(); });
+    $$('[data-del]', wrap).forEach(b => b.onclick = () => confirmBox('Të fshihet kjo llogari e portalit?', async () => { await api.del(`/subjects/${s.id}/clients/${b.dataset.del}`); toast('U fshi'); paint(); }, { danger: true }));
+  };
+  await paint();
+}
+
+/* ============ PORTALI I KLIENTIT: TVSH në kohë reale ============ */
+function renderClientPortal() {
+  let poll = null;
+  const STAGES = { ne_radhe: 'Kërkesa u pranua, po përgatitet…', duke_riprovuar: 'Po lidhemi me portalin tatimor…', ne_ekzekutim: 'Po merren të dhënat nga portali tatimor…' };
+  root.innerHTML = `
+    <div class="cp">
+      <header class="cp-top"><div class="brand">${I.logo}<b>Finbot</b></div>
+        <div class="cp-user"><span id="cpBiz" class="muted"></span><button class="btn ghost sm" id="cpPass">Fjalëkalimi</button><button class="btn ghost sm" id="cpOut">Dil</button></div></header>
+      <main class="cp-main">
+        <div class="cp-card">
+          <div class="eyebrow">TVSH në kohë reale</div>
+          <h1 id="cpName">…</h1>
+          <p class="muted" id="cpNipt"></p>
+          <button class="cp-btn" id="cpGo"><span class="cp-btn-ico">${ICO.refresh}</span><span id="cpGoTxt">Kërko TVSH-në tani</span></button>
+          <div class="cp-status" id="cpStatus" hidden><span class="spinner"></span><span id="cpStage"></span></div>
+          <div id="cpResult"></div>
+        </div>
+        <div class="cp-card cp-hist"><h3>Kërkesat e fundit</h3><div id="cpHist"></div></div>
+      </main>
+      <footer class="cp-foot muted">Të dhënat merren nga portali tatimor në momentin e kërkesës. Për pyetje kontaktoni kontabilistin tuaj.</footer>
+    </div>`;
+  $('#cpOut').onclick = () => { clearInterval(poll); logout(); };
+  $('#cpPass').onclick = () => modal('Ndrysho fjalëkalimin', `
+    <div class="field"><label>Fjalëkalimi aktual</label><input id="pc" type="password"></div>
+    <div class="field"><label>Fjalëkalimi i ri</label><input id="pn" type="password"></div>`, {
+    onSave: async bg => { await api.post('/auth/change-password', { current: $('#pc', bg).value, next: $('#pn', bg).value }); toast('Fjalëkalimi u ndryshua'); } });
+
+  const money = v => v == null ? '—' : nf(v) + ' Lek';
+  const resultHtml = (data, when, status, result) => {
+    if (!data || (data.tvsh_mujore == null && data.kredi == null)) return '';
+    const t = Number(data.tvsh_mujore);
+    const label = t < 0 ? 'TVSH për t’u rimbursuar / kredi' : 'TVSH për t’u paguar';
+    return `<div class="cp-result ${status === 'deshtoi' ? 'err' : ''}">
+      <div class="cp-main-val"><div class="muted">${label}</div><div class="big ${t < 0 ? 'pos' : ''}">${money(Math.abs(t))}</div></div>
+      <div class="cp-vals">
+        <div><span class="muted">TVSH mujore</span><b>${money(data.tvsh_mujore)}</b></div>
+        <div><span class="muted">Kredi e mbartur</span><b>${money(data.kredi)}</b></div>
+        <div><span class="muted">Totali</span><b>${money(data.totali)}</b></div>
+        ${data.status_deklarim ? `<div><span class="muted">Deklarimi</span><b>${esc(data.status_deklarim)}</b></div>` : ''}
+      </div>
+      <div class="muted small">Përditësuar më ${esc(when || '—')}${result ? ' · ' + esc(result) : ''}</div></div>`;
+  };
+
+  const paintHist = reqs => {
+    $('#cpHist').innerHTML = reqs.length ? reqs.map(r => `<div class="cp-row">
+      <span>${esc(r.created_at)}</span>
+      <span>${r.status === 'kryer' ? '<span class="badge b-paid">Gati</span>' : r.status === 'deshtoi' ? '<span class="badge b-overdue">Dështoi</span>' : r.status === 'anuluar' ? '<span class="badge b-cancelled">Anuluar</span>' : '<span class="badge b-sent pulse">Në proces</span>'}</span>
+      <b>${r.data && r.data.tvsh_mujore != null ? money(r.data.tvsh_mujore) : ''}</b></div>`).join('') : '<div class="muted small">Ende pa kërkesa.</div>';
+  };
+
+  const busy = on => { $('#cpGo').disabled = on; $('#cpGoTxt').textContent = on ? 'Duke marrë të dhënat…' : 'Kërko TVSH-në tani'; $('#cpStatus').hidden = !on; $('#cpGo').classList.toggle('loading', on); };
+
+  const watch = id => {
+    busy(true); clearInterval(poll);
+    const check = async () => {
+      try {
+        const r = await api.get('/client/requests/' + id);
+        $('#cpStage').textContent = STAGES[r.stage] || 'Duke përpunuar…';
+        if (['kryer', 'deshtoi', 'anuluar'].includes(r.status)) {
+          clearInterval(poll); busy(false);
+          if (r.status === 'kryer') toast('TVSH-ja u përditësua');
+          else toast(r.status === 'anuluar' ? 'Kërkesa u anulua' : 'Nuk u morën dot të dhënat. Provoni përsëri pak më vonë.', true);
+          load();
+        }
+      } catch (e) { clearInterval(poll); busy(false); toast(e.message, true); }
+    };
+    check(); poll = setInterval(check, 2000);
+  };
+
+  const load = async () => {
+    const o = await api.get('/client/overview');
+    $('#cpName').textContent = o.subject.name; $('#cpNipt').textContent = o.subject.nipt ? 'NIPT ' + o.subject.nipt : '';
+    $('#cpBiz').textContent = ME.name;
+    const lastOk = o.requests.find(r => r.status === 'kryer' && r.data);
+    $('#cpResult').innerHTML = lastOk ? resultHtml(lastOk.data, lastOk.finished_at, 'kryer', null)
+      : o.latest ? resultHtml(o.latest.data, o.latest.updated_at, o.latest.status, null)
+      : '<p class="muted" style="margin-top:18px">Shtypni butonin për të parë TVSH-në tuaj të këtij muaji.</p>';
+    paintHist(o.requests);
+    const open = o.requests.find(r => ['ne_radhe', 'ne_ekzekutim', 'duke_riprovuar'].includes(r.status));
+    if (open && !poll) watch(open.id);
+  };
+
+  $('#cpGo').onclick = async () => {
+    try { const r = await api.post('/client/tvsh'); poll = null; watch(r.request.id); load(); } catch (e) { toast(e.message, true); }
+  };
+  load().catch(e => toast(e.message, true));
 }
 
 function subjectForm(s) {

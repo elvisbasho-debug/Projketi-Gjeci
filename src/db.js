@@ -186,6 +186,9 @@ function migrate() {
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  addColumn('client_requests', 'result', 'TEXT');
+  addColumn('client_requests', 'data', 'TEXT');
+  addColumn('client_requests', 'finished_at', 'TEXT');
 
   // Cilësimet e workspace/kompanisë
   const hasCompany = db.prepare("SELECT value FROM settings WHERE key='company'").get();

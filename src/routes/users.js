@@ -37,10 +37,11 @@ function canManageRole(requester, targetRole) {
 router.get('/', requireRole('admin'), (req, res) => {
   let rows;
   if (req.user.role === 'owner') {
-    rows = db.prepare(`SELECT id, name, email, role, status, created_at, last_login FROM users ORDER BY id`).all();
+    rows = db.prepare(`SELECT id, name, email, role, status, created_at, last_login FROM users WHERE role != 'client' ORDER BY id`).all();
   } else {
     // Owner-ët nuk përfshihen KURRË — as në listë, as në numër.
-    rows = db.prepare(`SELECT id, name, email, role, status, created_at, last_login FROM users WHERE role != 'owner' ORDER BY id`).all();
+    // Llogaritë e klientëve menaxhohen te faqja e subjektit, jo këtu.
+    rows = db.prepare(`SELECT id, name, email, role, status, created_at, last_login FROM users WHERE role NOT IN ('owner','client') ORDER BY id`).all();
   }
   res.json(rows);
 });

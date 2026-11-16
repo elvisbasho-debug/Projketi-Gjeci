@@ -38,6 +38,7 @@ app.use('/api/tickets', requireAuth, require('./src/routes/tickets'));
 app.use('/api/va', requireAuth, require('./src/routes/va'));
 app.use('/api/reports', requireAuth, require('./src/routes/reports'));
 app.use('/api/settings', requireAuth, require('./src/routes/settings'));
+app.use('/api/client', requireAuth, require('./src/routes/client'));   // portali i klientit (TVSH në kohë reale)
 
 // Frontend statik
 app.use(express.static(path.join(__dirname, 'public')));

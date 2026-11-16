@@ -36,7 +36,7 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'I paautorizuar' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT id, name, email, role, status FROM users WHERE id = ?').get(payload.id);
+    const user = db.prepare('SELECT id, name, email, role, status, subject_id FROM users WHERE id = ?').get(payload.id);
     if (!user) return res.status(401).json({ error: 'Përdoruesi nuk ekziston' });
     if (user.status === 'suspended') return res.status(403).json({ error: 'Llogaria juaj është pezulluar' });
     req.user = user;
