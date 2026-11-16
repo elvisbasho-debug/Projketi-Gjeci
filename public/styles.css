@@ -426,3 +426,14 @@ th { color: #4c5a75; }.tabs { overflow-y: hidden; scrollbar-width: none; } .tabs
   .topbar { padding: 0 16px; }
   .toast { bottom: 84px; right: 16px; left: 16px; }
 }
+/* ===== Studioja aktive / plani ===== */
+.org-chip { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.org-chip select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); max-width: 240px; font-weight: 600; }
+.plan-pill { padding: 4px 10px; border-radius: 20px; background: var(--primary-light); color: var(--primary); font-weight: 700; font-size: 12px; white-space: nowrap; }
+.plan-pill.warn { background: var(--yellow-light); color: var(--yellow-dark); }
+.badge.b-studio_admin { background: var(--primary-light); color: var(--primary); }
+.badge.b-client { background: var(--green-light); color: var(--green); }
+@media (max-width: 860px) { .org-chip .muted { display: none; } }
+.plat-grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; margin-top: 18px; }
+.plat-grid > .card, .grid > .card { min-width: 0; }
+@media (max-width: 1000px) { .plat-grid { grid-template-columns: minmax(0, 1fr); } }

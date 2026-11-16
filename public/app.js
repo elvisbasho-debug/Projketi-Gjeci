@@ -22,9 +22,10 @@ const api = {
 const nf = n => (Number(n) || 0).toLocaleString('sq-AL');
 const money = n => nf(n) + ' ' + (COMPANY.currency || 'Lek');
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const ROLE_LEVEL = { viewer: 1, accountant: 2, admin: 3, owner: 4 };
+const ROLE_LEVEL = { client: 0, viewer: 1, accountant: 2, studio_admin: 3, admin: 4, owner: 5 };
 const can = role => ME && ROLE_LEVEL[ME.role] >= ROLE_LEVEL[role];
-const roleLabel = r => ({ owner: 'Pronar', admin: 'Administrator', accountant: 'Kontabilist', viewer: 'Vëzhgues' }[r] || r);
+const roleLabel = r => ({ owner: 'Pronar', admin: 'Admin i platformës', studio_admin: 'Administrator i studios', accountant: 'Kontabilist', viewer: 'Vëzhgues', client: 'Klient' }[r] || r);
+let PLATFORM = false, ORG = null; // nga /auth/me
 const timeAgo = t => t ? esc(t) : '—';
 const secs = ms => ms ? (ms >= 1000 ? Math.round(ms / 1000) + 's' : ms + 'ms') : '—';
 
@@ -95,8 +96,7 @@ const I = {
 /* ============ Auth / boot ============ */
 async function boot() {
   try {
-    ME = (await api.get('/auth/me')).user;
-    COMPANY = await api.get('/settings/company').catch(() => ({}));
+    await loadMe();
     renderApp();
   } catch (e) { renderLogin(); }
 }
@@ -118,10 +118,15 @@ function renderLogin(err) {
   $('#loginForm').onsubmit = async e => {
     e.preventDefault(); const f = e.target, btn = f.querySelector('button');
     btn.disabled = true; btn.textContent = 'Duke hyrë…';
-    try { ME = (await api.post('/auth/login', { email: f.email.value, password: f.password.value })).user;
-      COMPANY = await api.get('/settings/company').catch(() => ({})); location.hash = '#/'; renderApp();
+    try { await api.post('/auth/login', { email: f.email.value, password: f.password.value });
+      await loadMe(); location.hash = PLATFORM && !ORG ? '#/platform' : '#/'; renderApp();
     } catch (err) { renderLogin(err.message); }
   };
+}
+async function loadMe() {
+  const me = await api.get('/auth/me');
+  ME = me.user; PLATFORM = !!me.platform; ORG = me.org;
+  COMPANY = ORG && ME.role !== 'client' ? await api.get('/settings/company').catch(() => ({})) : {};
 }
 async function logout() { await api.post('/auth/logout').catch(() => {}); ME = null; renderLogin(); }
 
@@ -134,11 +139,14 @@ const NAV = [
   { key: 'automation', label: 'Automatizimi', icon: 'auto', role: 'viewer' },
   { key: 'notifications', label: 'Njoftimet', icon: 'bell', role: 'viewer' },
   { key: 'support', label: 'Mbështetje', icon: 'support', role: 'viewer' },
+  { sep: true, role: 'studio_admin' },
+  { key: 'users', label: 'Përdoruesit', icon: 'users', role: 'studio_admin' },
+  { key: 'audit', label: 'Regjistri', icon: 'audit', role: 'studio_admin' },
+  { key: 'settings', label: 'Cilësimet', icon: 'settings', role: 'studio_admin' },
   { sep: true, role: 'admin' },
-  { key: 'users', label: 'Përdoruesit', icon: 'users', role: 'admin' },
-  { key: 'audit', label: 'Regjistri', icon: 'audit', role: 'admin' },
-  { key: 'settings', label: 'Cilësimet', icon: 'settings', role: 'admin' },
+  { key: 'platform', label: 'Studiot', icon: 'dash', role: 'admin' },
 ];
+const NO_ORG_OK = ['platform', 'profile', 'support'];
 
 function renderApp() {
   if (ME.role === 'client') return renderClientPortal();
@@ -157,7 +165,7 @@ function renderApp() {
             <button class="menu-btn" id="menuBtn"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
             <h2 id="pageTitle">Paneli</h2>
           </div>
-          <div class="muted" id="companyName">${esc(COMPANY.name || '')}</div>
+          <div class="org-chip" id="companyName">${orgChip()}</div>
         </div>
         <div class="content" id="view"></div>
       </div>
@@ -169,6 +177,7 @@ function renderApp() {
         <button id="bnMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span>Menu</span></button>
       </nav>
     </div>`;
+  bindOrgChip();
   $('#bnMenu').onclick = () => $('#sidebar').classList.toggle('open');
   $('#bnSearch').onclick = globalSearch;
   const nav = $('#nav');
@@ -191,7 +200,7 @@ function renderApp() {
 const ROUTES = {
   '': viewDashboard, services: viewServices, service: viewServiceDetail, record: viewRecord, va: viewVA,
   subjects: viewSubjects, subject: viewSubjectDetail, automation: viewAutomation, notifications: viewNotifications,
-  support: viewSupport, users: viewUsers, audit: viewAudit, settings: viewSettings, profile: viewProfile,
+  support: viewSupport, users: viewUsers, audit: viewAudit, settings: viewSettings, profile: viewProfile, platform: viewPlatform,
 };
 const NAV_ALIAS = { service: 'services', record: 'services', subject: 'subjects' };
 let AUTO_TIMER = null;
@@ -202,10 +211,18 @@ function route() {
   const fn = ROUTES[key] || viewDashboard;
   const navItem = NAV.find(n => n.key === key);
   if (navItem && !can(navItem.role)) { $('#view').innerHTML = '<div class="empty">Nuk keni akses.</div>'; return; }
+  if (!ORG && !NO_ORG_OK.includes(key)) {
+    $('#pageTitle').textContent = 'Zgjidhni studion';
+    $('#view').innerHTML = `<div class="card" style="max-width:520px"><div class="card-body">
+      <h3 style="margin-top:0">Asnjë studio e zgjedhur</h3>
+      <p class="muted">Si ${esc(roleLabel(ME.role).toLowerCase())}, zgjidhni një studio për të parë bizneset, shërbimet dhe robotët e saj.</p>
+      <a class="btn" href="#/platform">Hap "Studiot"</a></div></div>`;
+    return;
+  }
   $$('.nav-item[data-key]').forEach(b => b.classList.toggle('active', b.dataset.key === (NAV_ALIAS[key] || key)));
   $$('.bottom-nav [data-bn]').forEach(b => b.classList.toggle('active', b.dataset.bn === (NAV_ALIAS[key] || key)));
   if ($('#sidebar')) $('#sidebar').classList.remove('open');
-  const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', subject: 'Subjekti', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
+  const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', subject: 'Subjekti', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im', platform: 'Studiot dhe planet' };
   $('#pageTitle').textContent = titles[key] || 'Finbot';
   $('#view').innerHTML = '<div class="empty">Duke ngarkuar…</div>';
   fn($('#view'), parts[1], parts[2], parts[3]);
@@ -264,8 +281,8 @@ async function viewDashboard(el) {
     <div class="grid stats" style="margin-bottom:18px">
       ${stat('Shërbime të disponueshme', d.services_total, 'i-blue', I.services, 'Caktuar për llogarinë')}
       ${stat('Shërbime aktive', d.services_active, 'i-green', I.auto, 'Në punë')}
-      ${stat('Përdorimi mujor', d.usage_used + ' / ' + d.usage_max, 'i-amber', I.dash, 'Muaji aktual')}
-      ${stat('Subjekte', d.subjects, 'i-violet', I.subjects, 'Gjithsej')}
+      ${stat('Biznese sipas planit', d.plan ? d.plan.used + ' / ' + d.plan.limit : d.subjects, 'i-amber', I.subjects, d.plan ? 'Plani ' + esc(d.plan.plan_name) : 'Gjithsej')}
+      ${stat('Përdorimi i shërbimeve', d.usage_used, 'i-violet', I.dash, 'Regjistrime në shërbime këtë muaj')}
     </div>
     <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start">
       <div class="card">
@@ -1175,15 +1192,14 @@ async function ticketThread(id, el) {
 async function viewUsers(el) {
   const list = await api.get('/users');
   el.innerHTML = `
-    <div class="toolbar"><div class="muted">${ME.role==='owner'?'Si pronar, ju shihni të gjithë përdoruesit.':'Menaxhoni ekipin tuaj.'}</div><button class="btn" id="add">${I.plus} Përdorues i ri</button></div>
+    <div class="toolbar"><div class="muted">Ekipi i studios. Owner-i dhe adminët e platformës menaxhohen te "Studiot".</div><button class="btn" id="add">${I.plus} Përdorues i ri</button></div>
     <div class="card"><table><thead><tr><th>Emri</th><th>Email</th><th>Roli</th><th>Statusi</th><th>Hyrja e fundit</th><th></th></tr></thead>
       <tbody>${list.map(u => `<tr><td><b>${esc(u.name)}</b>${u.id===ME.id?' <small class="muted">(ju)</small>':''}</td><td>${esc(u.email)}</td>
         <td><span class="badge b-${u.role}">${roleLabel(u.role)}</span></td>
         <td><span class="badge ${u.status==='active'?'b-active':'b-suspended'}">${u.status==='active'?'Aktiv':'Pezulluar'}</span></td>
         <td class="muted">${u.last_login?esc(u.last_login):'—'}</td>
         <td class="num">${u.id!==ME.id?`<button class="btn ghost sm" data-edit="${u.id}">Ndrysho</button> <button class="btn ghost sm" data-status="${u.id}">${u.status==='active'?'Pezullo':'Riaktivizo'}</button> <button class="btn ghost sm" data-del="${u.id}">Fshi</button>`:''}</td>
-      </tr>`).join('')}</tbody></table></div>
-    ${ME.role==='owner'?'':'<p class="muted" style="margin-top:14px;font-size:12.5px">Disa llogari sistemi mund të mos shfaqen në këtë listë.</p>'}`;
+      </tr>`).join('') || '<tr><td colspan="6"><div class="empty">Ende pa përdorues</div></td></tr>'}</tbody></table></div>`;
   $('#add').onclick = () => userForm();
   $$('[data-edit]').forEach(b => b.onclick = () => userForm(list.find(x => x.id == b.dataset.edit)));
   $$('[data-del]').forEach(b => b.onclick = () => { const u = list.find(x => x.id == b.dataset.del); confirmBox(`Të nxirret jashtë "${u.name}"? Llogaria fshihet përgjithmonë.`, async () => { await api.del('/users/' + u.id); toast('U fshi'); viewUsers(el); }, { danger: true }); });
@@ -1191,13 +1207,13 @@ async function viewUsers(el) {
 }
 function userForm(u) {
   u = u || { role: 'viewer' };
-  const roles = ME.role === 'owner' ? ['owner', 'admin', 'accountant', 'viewer'] : ['admin', 'accountant', 'viewer'];
+  const roles = ['studio_admin', 'accountant', 'viewer'];
   modal(u.id ? 'Ndrysho përdoruesin' : 'Përdorues i ri', `
     <div class="field"><label>Emri *</label><input id="u_name" value="${esc(u.name)}"></div>
     <div class="field"><label>Email *</label><input id="u_email" type="email" value="${esc(u.email)}"></div>
     <div class="row2"><div class="field"><label>Roli</label><select id="u_role">${roles.map(r => `<option value="${r}" ${r===u.role?'selected':''}>${roleLabel(r)}</option>`).join('')}</select></div>
       <div class="field"><label>${u.id?'Fjalëkalim i ri (opsional)':'Fjalëkalimi *'}</label><input id="u_pass" type="password" placeholder="${u.id?'Lëre bosh':''}"></div></div>
-    ${ME.role==='owner'&&u.role==='admin'?'<p class="muted" style="font-size:12.5px;margin:0">Ky admin do të ketë të drejta të plota operative, por nuk do ta shohë llogarinë tuaj të pronarit.</p>':''}`, {
+    <p class="muted" style="font-size:12.5px;margin:0">Administratori i studios menaxhon ekipin dhe cilësimet; kontabilisti punon me bizneset dhe robotët; vëzhguesi vetëm sheh.</p>`, {
     onSave: async bg => {
       const body = { name: $('#u_name', bg).value.trim(), email: $('#u_email', bg).value.trim(), role: $('#u_role', bg).value, password: $('#u_pass', bg).value };
       if (!body.name || !body.email) throw new Error('Emri dhe email-i janë të detyrueshëm');
@@ -1206,6 +1222,118 @@ function userForm(u) {
       toast('U ruajt'); route();
     }
   });
+}
+
+/* ============ Studioja aktive (krye) ============ */
+const eur = n => (Number(n) || 0).toLocaleString('sq-AL', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' €';
+function orgChip() {
+  if (PLATFORM) return `<select id="orgSwitch" title="Studioja që po shihni"><option value="">— Zgjidh studion —</option></select>`;
+  if (!ORG) return '';
+  const p = ORG.plan;
+  const pct = p.limit ? Math.min(100, Math.round(p.used / p.limit * 100)) : 0;
+  return `<span class="muted">${esc(ORG.name)}</span><span class="plan-pill ${pct >= 90 ? 'warn' : ''}" title="Plani ${esc(p.plan_name)}">${esc(p.plan_name)} · ${p.used}/${p.limit} biznese</span>`;
+}
+async function bindOrgChip() {
+  const sel = $('#orgSwitch'); if (!sel) return;
+  const d = await api.get('/platform/orgs').catch(() => ({ orgs: [] }));
+  sel.innerHTML = '<option value="">— Zgjidh studion —</option>' + d.orgs.map(o => `<option value="${o.id}" ${ORG && ORG.id === o.id ? 'selected' : ''}>${esc(o.name)}${o.status !== 'active' ? ' (pezulluar)' : ''}</option>`).join('');
+  sel.onchange = () => switchOrg(sel.value || null);
+}
+async function switchOrg(id, goto) {
+  await api.post('/platform/active-org', { org_id: id ? Number(id) : null });
+  await loadMe();
+  toast(ORG ? 'Po shihni: ' + ORG.name : 'Dolët nga studioja');
+  renderApp();
+  location.hash = goto || (ORG ? '#/' : '#/platform');
+}
+
+/* ============ Platforma: studiot, planet, adminët ============ */
+async function viewPlatform(el) {
+  const [d, plans, admins] = await Promise.all([api.get('/platform/orgs'), api.get('/platform/plans'), api.get('/platform/admins')]);
+  const planOpt = cur => plans.map(p => `<option value="${p.code}" ${p.code === cur ? 'selected' : ''}>${esc(p.name)} — ${p.max_subjects} biznese, ${eur(p.price_month)}/muaj${p.price_extra ? ` + ${eur(p.price_extra)}/biznes shtesë` : ''}</option>`).join('');
+  el.innerHTML = `
+    <div class="grid stats" style="margin-bottom:18px">
+      ${stat('Studio', d.totals.orgs, 'i-blue', I.dash, 'Gjithsej në platformë')}
+      ${stat('Biznese', d.totals.subjects, 'i-green', I.subjects, 'Të regjistruara nga studiot')}
+      ${stat('Të ardhura mujore', eur(d.totals.mrr), 'i-amber', I.services, 'Nga studiot aktive')}
+      ${stat('Adminë', admins.length, 'i-violet', I.users, ME.role === 'owner' ? 'Përfshirë ju' : 'Të platformës')}
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Studiot</h3><button class="btn" id="orgNew">${I.plus} Studio e re</button></div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Studioja</th><th>Plani</th><th class="num">Biznese</th><th class="num">Për muaj</th><th>Statusi</th><th></th></tr></thead>
+        <tbody>${d.orgs.map(o => { const p = o.plan; const pct = p.limit ? Math.min(100, Math.round(p.used / p.limit * 100)) : 0; return `<tr>
+          <td><b>${esc(o.name)}</b><br><small class="muted">${esc(o.nipt || '')} · ${o.users} përdorues</small></td>
+          <td>${esc(p.plan_name)}${o.max_subjects ? ' <small class="muted">(kufi i veçantë)</small>' : ''}</td>
+          <td class="num"><b>${p.used}</b> / ${p.limit}${p.extra ? `<br><small class="muted">+${p.extra} shtesë</small>` : ''}<div class="qbar" style="margin-top:4px"><div class="qfill" style="width:${pct}%"></div></div></td>
+          <td class="num"><b>${eur(p.monthly_total)}</b></td>
+          <td><span class="badge ${o.status === 'active' ? 'b-active' : 'b-suspended'}">${o.status === 'active' ? 'Aktive' : 'Pezulluar'}</span></td>
+          <td class="num nowrap"><button class="btn sm" data-enter="${o.id}">Hyr</button> <button class="btn ghost sm" data-edit="${o.id}">Ndrysho</button></td></tr>`; }).join('')}</tbody></table></div>
+    </div>
+    <div class="grid plat-grid">
+      <div class="card">
+        <div class="card-head"><h3>Planet e abonimit</h3><span class="muted small">Çmimet në €/muaj, pa TVSH</span></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Plani</th><th class="num">Biznese</th><th class="num">Çmimi</th><th class="num">Shtesë / biznes</th><th class="num">Kredite AI</th><th></th></tr></thead>
+          <tbody>${plans.map(p => `<tr><td><b>${esc(p.name)}</b></td><td class="num">${p.max_subjects}</td><td class="num">${eur(p.price_month)}</td>
+            <td class="num">${p.price_extra ? eur(p.price_extra) : '<span class="muted">—</span>'}</td><td class="num">${nf(p.ai_credits)}</td>
+            <td class="num"><button class="btn ghost sm" data-plan="${p.code}">Ndrysho</button></td></tr>`).join('')}</tbody></table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Adminët e platformës</h3><button class="btn ghost sm" id="admNew">${I.plus} Admin</button></div>
+        <div class="tbl-wrap"><table><tbody>${admins.map(a => `<tr><td><b>${esc(a.name)}</b>${a.id === ME.id ? ' <small class="muted">(ju)</small>' : ''}<br><small class="muted">${esc(a.email)}</small></td>
+          <td><span class="badge b-${a.role}">${roleLabel(a.role)}</span> ${a.status !== 'active' ? '<span class="badge b-suspended">Pezulluar</span>' : ''}</td>
+          <td class="num nowrap">${a.id !== ME.id ? `<button class="btn ghost sm" data-astat="${a.id}" data-st="${a.status}">${a.status === 'active' ? 'Pezullo' : 'Aktivizo'}</button> <button class="btn ghost sm danger-text" data-adel="${a.id}">Fshi</button>` : ''}</td></tr>`).join('')}</tbody></table></div>
+        <p class="muted small" style="padding:0 18px 14px;margin:0">Adminët kanë të njëjtat të drejta si pronari, por nuk mund ta shohin, ta pezullojnë apo ta nxjerrin pronarin nga sistemi.</p>
+      </div>
+    </div>`;
+
+  $$('[data-enter]', el).forEach(b => b.onclick = () => switchOrg(b.dataset.enter));
+  const orgForm = o => {
+    const isNew = !o; o = o || { plan_code: 'start', status: 'active' };
+    modal(isNew ? 'Studio e re' : 'Ndrysho studion', `
+      <div class="row2"><div class="field"><label>Emri i studios *</label><input id="oName" value="${esc(o.name || '')}"></div>
+        <div class="field"><label>NIPT</label><input id="oNipt" value="${esc(o.nipt || '')}"></div></div>
+      <div class="row2"><div class="field"><label>Email</label><input id="oEmail" value="${esc(o.email || '')}"></div>
+        <div class="field"><label>Telefon</label><input id="oPhone" value="${esc(o.phone || '')}"></div></div>
+      <div class="field"><label>Plani *</label><select id="oPlan">${planOpt(o.plan_code)}</select></div>
+      <div class="row2"><div class="field"><label>Kufi i veçantë biznesesh (opsional)</label><input id="oMax" type="number" min="1" placeholder="Sipas planit" value="${o.max_subjects || ''}"></div>
+        <div class="field"><label>Mbi kufirin</label><label class="check" style="margin-top:8px"><input type="checkbox" id="oOver" ${o.allow_overage ? 'checked' : ''}> Lejo pa bllokuar</label></div></div>
+      ${isNew ? `<h4 style="margin:6px 0 10px">Administratori i studios</h4>
+        <div class="row2"><div class="field"><label>Emri *</label><input id="aName"></div><div class="field"><label>Email (për hyrje) *</label><input id="aEmail" type="email"></div></div>
+        <div class="field"><label>Fjalëkalimi fillestar * (min. 8)</label><input id="aPass" type="text" autocomplete="off"></div>`
+        : `<div class="field"><label>Statusi</label><select id="oStatus"><option value="active" ${o.status === 'active' ? 'selected' : ''}>Aktive</option><option value="suspended" ${o.status !== 'active' ? 'selected' : ''}>Pezulluar (s'mund të hyjë askush i studios)</option></select></div>`}`, {
+      saveLabel: isNew ? 'Krijo studion' : 'Ruaj', onSave: async bg => {
+        const body = { name: $('#oName', bg).value.trim(), nipt: $('#oNipt', bg).value.trim(), email: $('#oEmail', bg).value.trim(), phone: $('#oPhone', bg).value.trim(),
+          plan_code: $('#oPlan', bg).value, max_subjects: $('#oMax', bg).value || null, allow_overage: $('#oOver', bg).checked };
+        if (isNew) Object.assign(body, { admin_name: $('#aName', bg).value.trim(), admin_email: $('#aEmail', bg).value.trim(), admin_password: $('#aPass', bg).value });
+        else body.status = $('#oStatus', bg).value;
+        if (isNew) await api.post('/platform/orgs', body); else await api.put('/platform/orgs/' + o.id, body);
+        toast(isNew ? 'Studioja u krijua' : 'U ruajt'); await loadMe(); bindOrgChip(); viewPlatform(el);
+      } });
+  };
+  $('#orgNew').onclick = () => orgForm();
+  $$('[data-edit]', el).forEach(b => b.onclick = () => orgForm(d.orgs.find(o => o.id == b.dataset.edit)));
+  $$('[data-plan]', el).forEach(b => b.onclick = () => {
+    const p = plans.find(x => x.code === b.dataset.plan);
+    modal('Plani ' + p.name, `
+      <div class="field"><label>Emri</label><input id="pName" value="${esc(p.name)}"></div>
+      <div class="row2"><div class="field"><label>Biznese të përfshira</label><input id="pMax" type="number" min="1" value="${p.max_subjects}"></div>
+        <div class="field"><label>Çmimi mujor (€)</label><input id="pPrice" type="number" step="0.01" min="0" value="${p.price_month}"></div></div>
+      <div class="row2"><div class="field"><label>Tarifë për çdo biznes mbi kufirin (€) <small class="muted">0 = bllokohet</small></label><input id="pExtra" type="number" step="0.01" min="0" value="${p.price_extra}"></div>
+        <div class="field"><label>Kredite AI në muaj</label><input id="pAi" type="number" min="0" value="${p.ai_credits}"></div></div>`, {
+      onSave: async bg => { await api.put('/platform/plans/' + p.code, { name: $('#pName', bg).value, max_subjects: $('#pMax', bg).value, price_month: $('#pPrice', bg).value, price_extra: $('#pExtra', bg).value, ai_credits: $('#pAi', bg).value });
+        toast('Plani u ruajt'); viewPlatform(el); } });
+  });
+  $('#admNew').onclick = () => modal('Admin i ri i platformës', `
+    <div class="field"><label>Emri *</label><input id="nName"></div>
+    <div class="field"><label>Email *</label><input id="nEmail" type="email"></div>
+    <div class="field"><label>Fjalëkalimi * (min. 8)</label><input id="nPass" type="password" autocomplete="new-password"></div>
+    <p class="muted small" style="margin:0">Admini do të menaxhojë studiot, planet dhe adminët e tjerë. Pronarin nuk e sheh dhe nuk mund ta nxjerrë.</p>`, {
+    saveLabel: 'Krijo', onSave: async bg => { await api.post('/platform/admins', { name: $('#nName', bg).value.trim(), email: $('#nEmail', bg).value.trim(), password: $('#nPass', bg).value, role: 'admin' });
+      toast('Admini u krijua'); viewPlatform(el); } });
+  $$('[data-astat]', el).forEach(b => b.onclick = async () => { await api.post('/platform/admins/' + b.dataset.astat + '/status', { status: b.dataset.st === 'active' ? 'suspended' : 'active' }); viewPlatform(el); });
+  $$('[data-adel]', el).forEach(b => b.onclick = () => confirmBox('Të nxirret ky admin nga platforma? Llogaria fshihet përgjithmonë.', async () => { await api.del('/platform/admins/' + b.dataset.adel); toast('U fshi'); viewPlatform(el); }, { danger: true }));
 }
 
 /* ============ Audit ============ */
@@ -1234,8 +1362,20 @@ async function viewSettings(el) {
       </div></div>`;
   $('#save').onclick = async () => {
     const body = { ...c, name: $('#s_name').value, nipt: $('#s_nipt').value, currency: $('#s_cur').value, address: $('#s_addr').value, phone: $('#s_phone').value, email: $('#s_email').value };
-    await api.put('/settings/company', body); COMPANY = body; $('#companyName').textContent = body.name; toast('Cilësimet u ruajtën');
+    await api.put('/settings/company', body); await loadMe(); $('#companyName').innerHTML = orgChip(); bindOrgChip(); toast('Cilësimet u ruajtën');
   };
+  const p = c.plan;
+  if (p) el.insertAdjacentHTML('beforeend', `
+    <div class="card" style="max-width:640px;margin-top:18px"><div class="card-head"><h3>Abonimi</h3><span class="badge b-admin">${esc(p.plan_name)}</span></div>
+      <div class="card-body">
+        <div class="kv"><span>Biznese të regjistruara</span><b>${p.used} / ${p.limit}</b></div>
+        <div class="qbar" style="margin:8px 0 12px"><div class="qfill" style="width:${p.limit ? Math.min(100, Math.round(p.used / p.limit * 100)) : 0}%"></div></div>
+        <div class="kv"><span>Çmimi i planit</span><b>${eur(p.price_month)} / muaj</b></div>
+        ${p.price_extra ? `<div class="kv"><span>Çdo biznes mbi ${p.limit}</span><b>${eur(p.price_extra)} / muaj</b></div>` : ''}
+        ${p.extra ? `<div class="kv"><span>Biznese shtesë këtë muaj</span><b>${p.extra}</b></div>` : ''}
+        <div class="kv"><span>Totali i këtij muaji</span><b>${eur(p.monthly_total)}</b></div>
+        <p class="muted small" style="margin:12px 0 0">${p.overage ? 'Mund të shtoni biznese mbi kufirin; faturohen veçmas.' : 'Kur arrini kufirin, për biznese të reja duhet një plan më i madh. Kontaktoni mbështetjen.'}</p>
+      </div></div>`);
 }
 
 /* ============ Profile ============ */

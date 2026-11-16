@@ -8,53 +8,53 @@ const { requireRole } = require('../auth');
 const { isSet } = require('../crypto');
 const { schemaFor } = require('../service-schema');
 const { htmlToPdf, buildDeclarationDoc, buildStatsDoc, recordsToPdfBuffers, zipBuffers } = require('../pdf');
+const { serviceLimit, serviceUsed, subjectInOrg, canAddSubjects } = require('../org');
 
 const router = express.Router();
 
+/*
+  Të gjitha thirrjet këtu kalojnë pas requireOrg (server.js): req.orgId është studioja aktive
+  dhe çdo pyetje filtrohet me subjects.org_id = req.orgId.
+*/
+
 /* ---------------- Ndihmës ---------------- */
-function companyInfo() {
-  const row = db.prepare("SELECT value FROM settings WHERE key='company'").get();
-  return row ? JSON.parse(row.value) : {};
-}
+const companyInfo = req => ({ name: req.org.name, nipt: req.org.nipt, address: req.org.address });
 const parseData = r => ({ ...r, data: r.data ? JSON.parse(r.data) : {} });
-function getService(id) {
-  return db.prepare(`
-    SELECT s.*, q.max_limit, q.used, q.active, q.expires_at, q.renews_at
-    FROM services s LEFT JOIN service_quotas q ON q.service_id = s.id WHERE s.id = ?
-  `).get(id);
+function getService(id, orgId) {
+  const s = db.prepare(`SELECT s.*, q.expires_at, q.renews_at FROM services s LEFT JOIN service_quotas q ON q.service_id = s.id WHERE s.id = ?`).get(id);
+  if (!s) return null;
+  const lim = serviceLimit(orgId, s.id);
+  return { ...s, max_limit: lim.max_limit, active: lim.active, used: serviceUsed(orgId, s.id) };
 }
 // Middleware: ngarkon shërbimin te req.svc ose kthen 404
 function loadService(req, res, next) {
-  const s = getService(req.params.id);
+  const s = getService(req.params.id, req.orgId);
   if (!s) return res.status(404).json({ error: 'Shërbimi nuk u gjet' });
   req.svc = s; next();
 }
-function recordsForService(id) {
+function recordsForService(id, orgId) {
   return db.prepare(`
     SELECT r.id AS record_id, r.status, r.result, r.data, r.updated_at, r.period_from, r.period_to,
            sub.id AS subject_id, sub.name AS subject_name, sub.nipt, sub.status AS subject_status
     FROM service_records r JOIN subjects sub ON sub.id = r.subject_id
-    WHERE r.service_id = ? ORDER BY sub.name
-  `).all(id).map(parseData);
+    WHERE r.service_id = ? AND sub.org_id = ? ORDER BY sub.name
+  `).all(id, orgId).map(parseData);
 }
-// Kuota "used" = numri i subjekteve te shërbimi
-function syncQuota(serviceId) {
-  db.prepare('UPDATE service_quotas SET used = (SELECT COUNT(*) FROM service_records WHERE service_id=?) WHERE service_id=?').run(serviceId, serviceId);
-}
-// Shton subjekte te shërbimi brenda kuotës. Kthen { added, skipped, full }
-function addSubjectsToService(svc, subjectIds) {
-  const existing = new Set(db.prepare('SELECT subject_id FROM service_records WHERE service_id=?').all(svc.id).map(r => r.subject_id));
+const ORG_SUBJECTS = 'SELECT id FROM subjects WHERE org_id = ?';
+// Shton subjekte (vetëm të kësaj studioje) te shërbimi brenda kuotës. Kthen { added, skipped, full }
+function addSubjectsToService(svc, subjectIds, orgId) {
+  const existing = new Set(db.prepare(`SELECT subject_id FROM service_records WHERE service_id=? AND subject_id IN (${ORG_SUBJECTS})`).all(svc.id, orgId).map(r => r.subject_id));
   let room = (svc.max_limit || 0) - existing.size;
   let added = 0, skipped = 0, full = 0;
   const ins = db.prepare("INSERT INTO service_records (service_id, subject_id, status) VALUES (?,?,'ne_pritje')");
   db.transaction(() => {
     for (const sid of subjectIds) {
+      if (!subjectInOrg(sid, orgId)) { skipped++; continue; }
       if (existing.has(sid)) { skipped++; continue; }
       if (room <= 0) { full++; continue; }
       ins.run(svc.id, sid); existing.add(sid); room--; added++;
     }
   })();
-  syncQuota(svc.id);
   return { added, skipped, full };
 }
 const ACTIVE_EXEC = "('ne_radhe','ne_ekzekutim','duke_riprovuar')";
@@ -68,46 +68,41 @@ const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 
 /* ---------------- Lista dhe faqja e shërbimit ---------------- */
 router.get('/', requireRole('viewer'), (req, res) => {
-  const rows = db.prepare(`
-    SELECT s.*, q.max_limit, q.used, q.active, q.expires_at, q.renews_at
-    FROM services s LEFT JOIN service_quotas q ON q.service_id = s.id
-    ORDER BY s.sort_order
-  `).all();
-  res.json(rows);
+  const ids = db.prepare('SELECT id FROM services ORDER BY sort_order').all();
+  res.json(ids.map(r => getService(r.id, req.orgId)));
 });
 
 router.get('/:id', requireRole('viewer'), loadService, (req, res) => {
   const s = req.svc;
-  const records = recordsForService(s.id);
-  const active = db.prepare(`SELECT COUNT(*) c FROM executions WHERE service_id=? AND status IN ${ACTIVE_EXEC}`).get(s.id).c;
+  const records = recordsForService(s.id, req.orgId);
+  const active = db.prepare(`SELECT COUNT(*) c FROM executions WHERE service_id=? AND status IN ${ACTIVE_EXEC} AND subject_id IN (${ORG_SUBJECTS})`).get(s.id, req.orgId).c;
   // subjektet me ekzekutim aktiv (për të treguar "në ekzekutim" te rreshti)
-  const running = db.prepare(`SELECT DISTINCT subject_id FROM executions WHERE service_id=? AND status IN ${ACTIVE_EXEC}`).all(s.id).map(r => r.subject_id);
+  const running = db.prepare(`SELECT DISTINCT subject_id FROM executions WHERE service_id=? AND status IN ${ACTIVE_EXEC} AND subject_id IN (${ORG_SUBJECTS})`).all(s.id, req.orgId).map(r => r.subject_id);
   res.json({ ...s, ...schemaFor(s.code), records, active_executions: active, running_subjects: running });
 });
 
 /* ---------------- Subjektet e shërbimit ---------------- */
 router.post('/:id/subjects', requireRole('accountant'), loadService, (req, res) => {
   const ids = (req.body.subject_ids || [req.body.subject_id]).map(Number).filter(Boolean);
-  const valid = ids.filter(id => db.prepare('SELECT 1 FROM subjects WHERE id=?').get(id));
+  const valid = ids.filter(id => subjectInOrg(id, req.orgId));
   if (!valid.length) return res.status(400).json({ error: 'Subjekt i pavlefshëm' });
-  const r = addSubjectsToService(req.svc, valid);
+  const r = addSubjectsToService(req.svc, valid, req.orgId);
   if (!r.added && r.full) return res.status(400).json({ error: `Kuota e shërbimit (${req.svc.max_limit}) është plot` });
   audit.log(req.user, 'shtoi_subjekt_ne_sherbim', 'services', req.svc.id, r);
   res.json({ ok: true, ...r });
 });
 
 router.delete('/:id/subjects/:subjectId', requireRole('accountant'), loadService, (req, res) => {
+  if (!subjectInOrg(Number(req.params.subjectId), req.orgId)) return res.status(404).json({ error: 'Subjekti nuk u gjet' });
   db.prepare('DELETE FROM service_records WHERE service_id=? AND subject_id=?').run(req.svc.id, req.params.subjectId);
-  syncQuota(req.svc.id);
   audit.log(req.user, 'hoqi_subjekt_nga_sherbimi', 'services', req.svc.id, { subject_id: req.params.subjectId });
   res.json({ ok: true });
 });
 
 // Fshi TË GJITHA subjektet nga shërbimi (subjektet vetë mbeten te "Subjektet")
 router.delete('/:id/subjects', requireRole('accountant'), loadService, (req, res) => {
-  const n = db.prepare('DELETE FROM service_records WHERE service_id=?').run(req.svc.id).changes;
-  db.prepare(`UPDATE executions SET status='anuluar', finished_at=datetime('now') WHERE service_id=? AND status IN ${ACTIVE_EXEC}`).run(req.svc.id);
-  syncQuota(req.svc.id);
+  const n = db.prepare(`DELETE FROM service_records WHERE service_id=? AND subject_id IN (${ORG_SUBJECTS})`).run(req.svc.id, req.orgId).changes;
+  db.prepare(`UPDATE executions SET status='anuluar', finished_at=datetime('now') WHERE service_id=? AND status IN ${ACTIVE_EXEC} AND subject_id IN (${ORG_SUBJECTS})`).run(req.svc.id, req.orgId);
   audit.log(req.user, 'fshiu_te_gjitha_subjektet_e_sherbimit', 'services', req.svc.id, { n });
   res.json({ ok: true, removed: n });
 });
@@ -119,16 +114,18 @@ router.post('/:id/run', requireRole('accountant'), loadService, (req, res) => {
   const schema = schemaFor(s.code);
   if (action && !schema.actions.find(a => a.key === action)) return res.status(400).json({ error: 'Veprim i panjohur për këtë shërbim' });
 
-  let subjectIds = (req.body.subject_ids || []).map(Number);
+  const asked = Array.isArray(req.body.subject_ids) && req.body.subject_ids.length > 0;
+  let subjectIds = (req.body.subject_ids || []).map(Number).filter(id => subjectInOrg(id, req.orgId));
+  if (asked && !subjectIds.length) return res.status(400).json({ error: 'Subjekt i pavlefshëm' });
   if (all) {
-    // EKZEKUTIM MASIV: të gjitha subjektet aktive (shtohen te shërbimi brenda kuotës)
-    const ids = db.prepare("SELECT id FROM subjects WHERE status='active'").all().map(r => r.id);
-    addSubjectsToService(s, ids);
-    subjectIds = db.prepare('SELECT subject_id FROM service_records WHERE service_id=?').all(s.id).map(r => r.subject_id);
+    // EKZEKUTIM MASIV: të gjitha subjektet aktive të studios (shtohen te shërbimi brenda kuotës)
+    const ids = db.prepare("SELECT id FROM subjects WHERE status='active' AND org_id=?").all(req.orgId).map(r => r.id);
+    addSubjectsToService(s, ids, req.orgId);
+    subjectIds = db.prepare(`SELECT subject_id FROM service_records WHERE service_id=? AND subject_id IN (${ORG_SUBJECTS})`).all(s.id, req.orgId).map(r => r.subject_id);
   } else if (!subjectIds.length) {
-    // të gjitha subjektet aktive të regjistruara te ky shërbim
+    // të gjitha subjektet aktive të studios të regjistruara te ky shërbim
     subjectIds = db.prepare(`SELECT r.subject_id FROM service_records r JOIN subjects sub ON sub.id=r.subject_id
-      WHERE r.service_id=? AND sub.status='active'`).all(s.id).map(r => r.subject_id);
+      WHERE r.service_id=? AND sub.status='active' AND sub.org_id=?`).all(s.id, req.orgId).map(r => r.subject_id);
   }
   // mos fut dy herë në radhë të njëjtin subjekt për të njëjtin veprim
   const busy = new Set(db.prepare(`SELECT subject_id FROM executions WHERE service_id=? AND IFNULL(action,'')=? AND status IN ${ACTIVE_EXEC}`)
@@ -140,14 +137,13 @@ router.post('/:id/run', requireRole('accountant'), loadService, (req, res) => {
   const upRec = db.prepare(`INSERT INTO service_records (service_id, subject_id, status) VALUES (?,?,'ne_pritje')
     ON CONFLICT(service_id, subject_id) DO NOTHING`);
   db.transaction(() => { for (const sid of subjectIds) { ins.run(s.id, sid, req.user.email, action || null); upRec.run(s.id, sid); } })();
-  syncQuota(s.id);
   audit.log(req.user, 'ekzekutoi_sherbim', 'services', s.id, { subjekte: subjectIds.length, veprimi: action || null });
   res.json({ ok: true, queued: subjectIds.length });
 });
 
 // NDALO: anulon gjithçka në radhë/ekzekutim për këtë shërbim
 router.post('/:id/stop', requireRole('accountant'), loadService, (req, res) => {
-  const rows = db.prepare(`SELECT id FROM executions WHERE service_id=? AND status IN ${ACTIVE_EXEC}`).all(req.svc.id);
+  const rows = db.prepare(`SELECT id FROM executions WHERE service_id=? AND status IN ${ACTIVE_EXEC} AND subject_id IN (${ORG_SUBJECTS})`).all(req.svc.id, req.orgId);
   const up = db.prepare("UPDATE executions SET status='anuluar', finished_at=datetime('now') WHERE id=?");
   const lg = db.prepare("INSERT INTO execution_logs (execution_id, level, message) VALUES (?, 'warn', 'Ekzekutimi u ndalua nga përdoruesi.')");
   db.transaction(() => rows.forEach(r => { up.run(r.id); lg.run(r.id); }))();
@@ -160,7 +156,7 @@ router.post('/:id/bulk-dates', requireRole('accountant'), loadService, (req, res
   const { from, to } = req.body || {};
   if (!isDate(from) || !isDate(to)) return res.status(400).json({ error: 'Vendosni datën e fillimit dhe të mbarimit' });
   if (from > to) return res.status(400).json({ error: 'Data e fillimit duhet të jetë para datës së mbarimit' });
-  const n = db.prepare('UPDATE service_records SET period_from=?, period_to=? WHERE service_id=?').run(from, to, req.svc.id).changes;
+  const n = db.prepare(`UPDATE service_records SET period_from=?, period_to=? WHERE service_id=? AND subject_id IN (${ORG_SUBJECTS})`).run(from, to, req.svc.id, req.orgId).changes;
   audit.log(req.user, 'vendosi_datat_masive', 'services', req.svc.id, { from, to, n });
   res.json({ ok: true, updated: n });
 });
@@ -176,35 +172,36 @@ router.post('/:id/import', requireRole('accountant'), loadService, (req, res) =>
   const rows = csv.parse(req.body && req.body.csv);
   if (!rows.length) return res.status(400).json({ error: 'CSV bosh' });
   const start = /emri|name/i.test(rows[0][0] || '') ? 1 : 0;
-  const byNipt = db.prepare('SELECT id FROM subjects WHERE nipt=?');
-  const byName = db.prepare('SELECT id FROM subjects WHERE name=?');
-  const ins = db.prepare('INSERT INTO subjects (name, nipt, ealbania_user, status, created_by) VALUES (?,?,?,?,?)');
-  const ids = []; let created = 0, invalid = 0;
+  const byNipt = db.prepare('SELECT id FROM subjects WHERE nipt=? AND org_id=?');
+  const byName = db.prepare('SELECT id FROM subjects WHERE name=? AND org_id=?');
+  const ins = db.prepare('INSERT INTO subjects (name, nipt, ealbania_user, status, created_by, org_id) VALUES (?,?,?,?,?,?)');
+  const ids = []; let created = 0, invalid = 0, overPlan = 0;
   db.transaction(() => {
     for (const cols of rows.slice(start)) {
       const name = cols[0], nipt = cols[1] || null;
       if (!name && !nipt) { invalid++; continue; }
-      let found = (nipt && byNipt.get(nipt)) || (name && byName.get(name));
+      let found = (nipt && byNipt.get(nipt, req.orgId)) || (name && byName.get(name, req.orgId));
       if (!found) {
         if (!name) { invalid++; continue; }
+        if (!canAddSubjects(req.orgId, 1).ok) { overPlan++; continue; } // kufiri i planit
         const st = /joaktiv|inactive/i.test(cols[3] || '') ? 'inactive' : 'active';
-        found = { id: ins.run(name, nipt, cols[2] || nipt, st, req.user.id).lastInsertRowid }; created++;
+        found = { id: ins.run(name, nipt, cols[2] || nipt, st, req.user.id, req.orgId).lastInsertRowid }; created++;
       }
       ids.push(Number(found.id));
     }
   })();
-  const r = addSubjectsToService(req.svc, ids);
-  audit.log(req.user, 'importoi_te_sherbimi', 'services', req.svc.id, { created, ...r, invalid });
-  res.json({ ok: true, created, invalid, ...r });
+  const r = addSubjectsToService(req.svc, ids, req.orgId);
+  audit.log(req.user, 'importoi_te_sherbimi', 'services', req.svc.id, { created, ...r, invalid, overPlan });
+  res.json({ ok: true, created, invalid, over_plan: overPlan, ...r });
 });
 
 // Importo nga një shërbim tjetër: kopjon subjektet e tij
 router.post('/:id/import-from', requireRole('accountant'), loadService, (req, res) => {
   const src = Number(req.body && req.body.source_service_id);
-  if (!src || src === req.svc.id || !getService(src)) return res.status(400).json({ error: 'Zgjidhni një shërbim tjetër' });
-  const ids = db.prepare('SELECT subject_id FROM service_records WHERE service_id=?').all(src).map(r => r.subject_id);
+  if (!src || src === req.svc.id || !getService(src, req.orgId)) return res.status(400).json({ error: 'Zgjidhni një shërbim tjetër' });
+  const ids = db.prepare(`SELECT subject_id FROM service_records WHERE service_id=? AND subject_id IN (${ORG_SUBJECTS})`).all(src, req.orgId).map(r => r.subject_id);
   if (!ids.length) return res.status(400).json({ error: 'Shërbimi burim nuk ka subjekte' });
-  const r = addSubjectsToService(req.svc, ids);
+  const r = addSubjectsToService(req.svc, ids, req.orgId);
   audit.log(req.user, 'importoi_nga_sherbimi', 'services', req.svc.id, { src, ...r });
   res.json({ ok: true, ...r });
 });
@@ -212,7 +209,7 @@ router.post('/:id/import-from', requireRole('accountant'), loadService, (req, re
 /* ---------------- Eksportet ---------------- */
 router.get('/:id/export', requireRole('viewer'), loadService, (req, res) => {
   const cols = schemaFor(req.svc.code).columns;
-  const recs = recordsForService(req.svc.id);
+  const recs = recordsForService(req.svc.id, req.orgId);
   const header = ['Subjekti', 'NIPT', 'Statusi i subjektit', 'Statusi', 'Rezultati', ...cols.map(c => c.label), 'Periudha nga', 'Periudha deri', 'Përditësuar'];
   const rows = recs.map(r => [r.subject_name, r.nipt, r.subject_status === 'active' ? 'Aktiv' : 'Joaktiv', r.status, r.result,
     ...cols.map(c => r.data[c.key]), r.period_from, r.period_to, r.updated_at]);
@@ -220,16 +217,16 @@ router.get('/:id/export', requireRole('viewer'), loadService, (req, res) => {
 });
 
 router.get('/:id/pdf', requireRole('viewer'), loadService, async (req, res) => {
-  const recs = recordsForService(req.svc.id);
+  const recs = recordsForService(req.svc.id, req.orgId);
   if (!recs.length) return res.status(400).json({ error: 'Nuk ka rekorde për PDF' });
-  try { sendFile(res, 'application/pdf', `${req.svc.code}-deklaratat.pdf`, await htmlToPdf(buildDeclarationDoc(companyInfo(), req.svc, recs))); }
+  try { sendFile(res, 'application/pdf', `${req.svc.code}-deklaratat.pdf`, await htmlToPdf(buildDeclarationDoc(companyInfo(req), req.svc, recs))); }
   catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
 });
 
 router.get('/:id/zip', requireRole('viewer'), loadService, async (req, res) => {
-  const recs = recordsForService(req.svc.id);
+  const recs = recordsForService(req.svc.id, req.orgId);
   if (!recs.length) return res.status(400).json({ error: 'Nuk ka rekorde për ZIP' });
-  try { sendFile(res, 'application/zip', `${req.svc.code}-deklaratat.zip`, await zipBuffers(await recordsToPdfBuffers(companyInfo(), req.svc, recs))); }
+  try { sendFile(res, 'application/zip', `${req.svc.code}-deklaratat.zip`, await zipBuffers(await recordsToPdfBuffers(companyInfo(req), req.svc, recs))); }
   catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të ZIP: ' + e.message }); }
 });
 
@@ -240,8 +237,8 @@ function loadRecord(req, res, next) {
            sub.id AS subject_id, sub.name AS subject_name, sub.nipt, sub.status AS subject_status,
            sub.ealbania_user, sub.ealbania_pass, sub.selfcare_pass
     FROM service_records r JOIN subjects sub ON sub.id = r.subject_id
-    WHERE r.service_id=? AND r.subject_id=?
-  `).get(req.svc.id, req.params.subjectId);
+    WHERE r.service_id=? AND r.subject_id=? AND sub.org_id=?
+  `).get(req.svc.id, req.params.subjectId, req.orgId);
   if (!r) return res.status(404).json({ error: 'Rekordi nuk u gjet' });
   r.has_ealbania_pass = isSet(r.ealbania_pass); r.has_selfcare_pass = isSet(r.selfcare_pass);
   delete r.ealbania_pass; delete r.selfcare_pass;
@@ -312,7 +309,7 @@ router.get(REC + '/stats', requireRole('viewer'), loadService, loadRecord, (req,
 
 router.get(REC + '/stats.pdf', requireRole('viewer'), loadService, loadRecord, async (req, res) => {
   try {
-    const pdf = await htmlToPdf(buildStatsDoc(companyInfo(), req.svc, req.rec, statsFor(req.svc, req.rec.subject_id)));
+    const pdf = await htmlToPdf(buildStatsDoc(companyInfo(req), req.svc, req.rec, statsFor(req.svc, req.rec.subject_id)));
     sendFile(res, 'application/pdf', `statistika-${safeName(req.rec.subject_name)}.pdf`, pdf);
   } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
 });
@@ -331,7 +328,7 @@ router.get(REC + '/logs', requireRole('viewer'), loadService, loadRecord, (req, 
 
 // PDF i rekordit (gjendja aktuale)
 router.get(REC + '/pdf', requireRole('viewer'), loadService, loadRecord, async (req, res) => {
-  try { sendFile(res, 'application/pdf', `deklarate-${safeName(req.rec.subject_name)}.pdf`, await htmlToPdf(buildDeclarationDoc(companyInfo(), req.svc, [req.rec]))); }
+  try { sendFile(res, 'application/pdf', `deklarate-${safeName(req.rec.subject_name)}.pdf`, await htmlToPdf(buildDeclarationDoc(companyInfo(req), req.svc, [req.rec]))); }
   catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
 });
 
@@ -343,7 +340,7 @@ router.get(REC + '/zip', requireRole('viewer'), loadService, loadRecord, async (
   if (!latest.size) return res.status(400).json({ error: 'Nuk ka të dhëna për këtë periudhë' });
   const recs = [...latest.values()].map(h => ({ ...req.rec, status: h.status, result: h.result, data: h.data,
     period_from: h.period + '-01', period_to: h.period, subject_name: `${req.rec.subject_name} ${h.period}` }));
-  try { sendFile(res, 'application/zip', `deklaratat-${safeName(req.rec.subject_name)}.zip`, await zipBuffers(await recordsToPdfBuffers(companyInfo(), req.svc, recs))); }
+  try { sendFile(res, 'application/zip', `deklaratat-${safeName(req.rec.subject_name)}.zip`, await zipBuffers(await recordsToPdfBuffers(companyInfo(req), req.svc, recs))); }
   catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të ZIP: ' + e.message }); }
 });
 

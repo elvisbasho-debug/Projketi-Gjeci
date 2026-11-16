@@ -28,16 +28,20 @@ app.use(cookieParser());
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 // API
+// Rrugët e studios: kërkojnë një studio aktive (req.orgId) dhe të dhënat filtrohen sipas saj
+const { requireOrg } = require('./src/org');
+const studio = [requireAuth, requireOrg];
 app.use('/api/auth', require('./src/routes/auth'));
-app.use('/api/users', requireAuth, require('./src/routes/users'));
-app.use('/api/subjects', requireAuth, require('./src/routes/subjects'));
-app.use('/api/services', requireAuth, require('./src/routes/services'));
-app.use('/api/executions', requireAuth, require('./src/routes/executions'));
-app.use('/api/notifications', requireAuth, require('./src/routes/notifications'));
-app.use('/api/tickets', requireAuth, require('./src/routes/tickets'));
-app.use('/api/va', requireAuth, require('./src/routes/va'));
-app.use('/api/reports', requireAuth, require('./src/routes/reports'));
-app.use('/api/settings', requireAuth, require('./src/routes/settings'));
+app.use('/api/platform', requireAuth, require('./src/routes/platform'));   // owner + adminët: studiot, planet, adminët
+app.use('/api/users', ...studio, require('./src/routes/users'));
+app.use('/api/subjects', ...studio, require('./src/routes/subjects'));
+app.use('/api/services', ...studio, require('./src/routes/services'));
+app.use('/api/executions', ...studio, require('./src/routes/executions'));
+app.use('/api/notifications', ...studio, require('./src/routes/notifications'));
+app.use('/api/tickets', requireAuth, require('./src/routes/tickets'));    // platforma i sheh të gjitha
+app.use('/api/va', ...studio, require('./src/routes/va'));
+app.use('/api/reports', ...studio, require('./src/routes/reports'));
+app.use('/api/settings', ...studio, require('./src/routes/settings'));
 app.use('/api/client', requireAuth, require('./src/routes/client'));   // portali i klientit (TVSH në kohë reale)
 
 // C@ts i simuluar për testimin e konektorit të TVSH-së (jo në prodhim)

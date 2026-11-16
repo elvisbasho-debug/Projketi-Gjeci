@@ -92,6 +92,11 @@
     'Kërko': 'Search', 'TVSH e paguar': 'VAT paid','NIPT': 'Tax ID', 'Kërko subjekt, NIPT, status ose vlerë…': 'Search subject, tax ID, status or value…', 'Rekordi': 'Record', 'Kërko shërbime…': 'Search services…', 'Kuota rinovohet më': 'Quota renews on',
     'Subjekt, NIPT ose shërbim…': 'Subject, tax ID or service…', 'Asnjë rezultat': 'No results', 'Shërbim': 'Service',
     'Subjekt, NIPT, shërbim, përdorues ose rezultat': 'Subject, tax ID, service, user or result',
+    'Studiot': 'Studios', 'Studiot dhe planet': 'Studios and plans', 'Studioja': 'Studio', 'Studio e re': 'New studio', 'Planet e abonimit': 'Subscription plans',
+    'Adminët e platformës': 'Platform admins', 'Hyr': 'Enter', 'Plani': 'Plan', 'Biznese': 'Businesses', 'Për muaj': 'Per month', 'Abonimi': 'Subscription',
+    'Biznese sipas planit': 'Businesses on plan', 'Përdorimi i shërbimeve': 'Service usage', 'Të ardhura mujore': 'Monthly revenue', 'Adminë': 'Admins',
+    '— Zgjidh studion —': '— Select studio —', 'Zgjidhni studion': 'Select a studio', 'Administrator i studios': 'Studio administrator',
+    'Admin i platformës': 'Platform admin', 'Klient': 'Client', 'Krijo studion': 'Create studio', 'Ndrysho studion': 'Edit studio',
     // Portali i klientit
     'TVSH në kohë reale': 'Real-time VAT', 'Kërko TVSH-në tani': 'Get my VAT now', 'Duke marrë të dhënat…': 'Fetching data…',
     'Kërkesat e fundit': 'Recent requests', 'Kredi e mbartur': 'Credit carried forward', 'Deklarimi': 'Declaration',

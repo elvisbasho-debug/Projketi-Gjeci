@@ -4,6 +4,8 @@ const express = require('express');
 const db = require('../db');
 const { requireRole } = require('../auth');
 const { askClaude, aiEnabled } = require('../va-ai');
+const { serviceUsed, serviceLimit, subjectInOrg } = require('../org');
+const ORG = 'subject_id IN (SELECT id FROM subjects WHERE org_id = ?)';
 
 const router = express.Router();
 
@@ -33,23 +35,23 @@ function subjectAnswer(t, s) {
   return `${s.name} (${s.nipt || 'pa NIPT'}) është në ${recs.length} shërbime:\n` + recs.map(r => `• ${r.name}: ${r.result || r.status}`).join('\n');
 }
 
-function buildAnswer(q, subjectId) {
+function buildAnswer(q, subjectId, orgId) {
   const t = (q || '').toLowerCase();
   if (subjectId) {
-    const s = db.prepare('SELECT * FROM subjects WHERE id=?').get(subjectId);
+    const s = db.prepare('SELECT * FROM subjects WHERE id=? AND org_id=?').get(subjectId, orgId);
     if (s) return subjectAnswer(t, s);
   }
-  const subjects = db.prepare('SELECT COUNT(*) c FROM subjects').get().c;
+  const subjects = db.prepare('SELECT COUNT(*) c FROM subjects WHERE org_id=?').get(orgId).c;
   const services = db.prepare('SELECT COUNT(*) c FROM services').get().c;
   const execs = {};
-  db.prepare('SELECT status, COUNT(*) c FROM executions GROUP BY status').all().forEach(r => execs[r.status] = r.c);
+  db.prepare(`SELECT status, COUNT(*) c FROM executions WHERE ${ORG} GROUP BY status`).all(orgId).forEach(r => execs[r.status] = r.c);
 
   if (/dësht|deshtu|gabim|problem/.test(t)) {
     const fails = db.prepare(`
       SELECT sub.name, sv.name AS svc, e.result FROM executions e
       JOIN subjects sub ON sub.id=e.subject_id JOIN services sv ON sv.id=e.service_id
-      WHERE e.status='deshtoi' ORDER BY e.id DESC LIMIT 8
-    `).all();
+      WHERE e.status='deshtoi' AND sub.org_id=? ORDER BY e.id DESC LIMIT 8
+    `).all(orgId);
     if (!fails.length) return 'Nuk ka ekzekutime të dështuara për momentin. 👍';
     return 'Ekzekutimet e fundit të dështuara:\n' + fails.map(f => `• ${f.name} — ${f.svc}: ${f.result || 'gabim'}`).join('\n');
   }
@@ -60,14 +62,14 @@ function buildAnswer(q, subjectId) {
     const rec = db.prepare(`
       SELECT sub.name, r.data FROM service_records r
       JOIN subjects sub ON sub.id=r.subject_id JOIN services sv ON sv.id=r.service_id
-      WHERE sv.code='tvsh_deklarim' AND r.data IS NOT NULL LIMIT 8
-    `).all();
+      WHERE sv.code='tvsh_deklarim' AND r.data IS NOT NULL AND sub.org_id=? LIMIT 8
+    `).all(orgId);
     let txt = 'Përmbledhje TVSH (nga rekordet e fundit):\n';
     rec.forEach(x => { const d = JSON.parse(x.data || '{}'); txt += `• ${x.name}: TVSH mujore ${num(d.tvsh_mujore)}\n`; });
     return rec.length ? txt : 'Ende nuk ka rekorde TVSH. Ekzekuto shërbimin "Deklarimi i TVSH-së".';
   }
   if (/përdorim|perdorim|kuot|planifik/.test(t)) {
-    const q2 = db.prepare('SELECT s.name, q.used, q.max_limit FROM services s JOIN service_quotas q ON q.service_id=s.id ORDER BY q.used DESC LIMIT 5').all();
+    const q2 = db.prepare('SELECT id, name FROM services').all().map(s => ({ name: s.name, used: serviceUsed(orgId, s.id), max_limit: serviceLimit(orgId, s.id).max_limit })).sort((a, b) => b.used - a.used).slice(0, 5);
     return 'Përdorimi i kuotave (top 5):\n' + q2.map(x => `• ${x.name}: ${x.used}/${x.max_limit}`).join('\n');
   }
   return `Gjendja aktuale: ${subjects} subjekte, ${services} shërbime. ` +
@@ -80,8 +82,7 @@ const thread = (userId, subjectId) => db.prepare('SELECT * FROM va_messages WHER
   .all(userId, subjectId || 0).reverse();
 
 router.get('/messages', requireRole('viewer'), (req, res) => {
-  const company = JSON.parse(db.prepare("SELECT value FROM settings WHERE key='company'").get().value);
-  res.json({ messages: thread(req.user.id, sid(req.query.subject_id)), credits: company.va_credits ?? 10, ai: aiEnabled() });
+  res.json({ messages: thread(req.user.id, sid(req.query.subject_id)), credits: req.org.va_credits ?? 0, ai: aiEnabled() });
 });
 
 // Bisedë e re: fshin bisedën e këtij përdoruesi (për këtë subjekt ose të përgjithshmen)
@@ -92,12 +93,13 @@ router.delete('/messages', requireRole('viewer'), (req, res) => {
 
 router.post('/ask', requireRole('viewer'), async (req, res) => {
   const { question } = req.body || {};
-  const subjectId = sid(req.body && req.body.subject_id);
+  let subjectId = sid(req.body && req.body.subject_id);
+  if (subjectId && !subjectInOrg(subjectId, req.orgId)) subjectId = null;
   if (!question || !String(question).trim()) return res.status(400).json({ error: 'Shkruaj një pyetje' });
   const history = thread(req.user.id, subjectId).slice(-10);
   db.prepare("INSERT INTO va_messages (user_id, role, body, subject_id) VALUES (?, 'user', ?, ?)").run(req.user.id, question, subjectId);
-  const ai = await askClaude(question, history, subjectId);
-  const answer = ai ? ai.answer : buildAnswer(question, subjectId);
+  const ai = await askClaude(question, history, subjectId, req.orgId);
+  const answer = ai ? ai.answer : buildAnswer(question, subjectId, req.orgId);
   db.prepare("INSERT INTO va_messages (user_id, role, body, subject_id) VALUES (?, 'assistant', ?, ?)").run(req.user.id, answer, subjectId);
   res.json({ answer, source: ai ? 'ai' : 'rules' });
 });

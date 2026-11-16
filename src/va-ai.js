@@ -32,18 +32,21 @@ Kur ka dështime, shpjego shkurt shkakun e mundshëm dhe hapin tjetër (p.sh. ko
 Mos jep këshilla investimi. Për vendime tatimore thuaj që duhen verifikuar te portali zyrtar.`;
 
 // Konteksti: përmbledhje e platformës + (opsionale) detajet e një subjekti
-function buildContext(subjectId) {
+function buildContext(subjectId, orgId) {
+  const { serviceUsed, serviceLimit, planInfo } = require('./org');
   const ctx = {};
   ctx.permbledhje = {
-    subjekte: db.prepare('SELECT COUNT(*) c FROM subjects').get().c,
-    ekzekutime: Object.fromEntries(db.prepare('SELECT status, COUNT(*) c FROM executions GROUP BY status').all().map(r => [r.status, r.c])),
+    subjekte: db.prepare('SELECT COUNT(*) c FROM subjects WHERE org_id=?').get(orgId).c,
+    plani: planInfo(orgId),
+    ekzekutime: Object.fromEntries(db.prepare('SELECT status, COUNT(*) c FROM executions WHERE subject_id IN (SELECT id FROM subjects WHERE org_id=?) GROUP BY status').all(orgId).map(r => [r.status, r.c])),
   };
-  ctx.kuotat = db.prepare('SELECT s.name AS sherbimi, q.used AS perdorur, q.max_limit AS limiti, q.renews_at AS rinovohet FROM services s JOIN service_quotas q ON q.service_id=s.id ORDER BY s.sort_order').all();
+  ctx.kuotat = db.prepare('SELECT s.id, s.name, q.renews_at FROM services s LEFT JOIN service_quotas q ON q.service_id=s.id ORDER BY s.sort_order').all()
+    .map(s => ({ sherbimi: s.name, perdorur: serviceUsed(orgId, s.id), limiti: serviceLimit(orgId, s.id).max_limit, rinovohet: s.renews_at }));
   ctx.deshtimet_e_fundit = db.prepare(`SELECT sub.name AS subjekti, sv.name AS sherbimi, e.result AS arsyeja, e.finished_at AS kur
     FROM executions e JOIN subjects sub ON sub.id=e.subject_id JOIN services sv ON sv.id=e.service_id
-    WHERE e.status='deshtoi' ORDER BY e.id DESC LIMIT 10`).all();
+    WHERE e.status='deshtoi' AND sub.org_id=? ORDER BY e.id DESC LIMIT 10`).all(orgId);
   if (subjectId) {
-    const s = db.prepare('SELECT id, name, nipt, status FROM subjects WHERE id=?').get(subjectId);
+    const s = db.prepare('SELECT id, name, nipt, status FROM subjects WHERE id=? AND org_id=?').get(subjectId, orgId);
     if (s) {
       const recs = db.prepare(`SELECT sv.id AS sid, sv.code, sv.name AS sherbimi, r.status, r.result AS rezultati, r.data, r.updated_at AS perditesuar
         FROM service_records r JOIN services sv ON sv.id=r.service_id WHERE r.subject_id=? ORDER BY sv.sort_order`).all(s.id);
@@ -60,10 +63,10 @@ function buildContext(subjectId) {
 }
 
 // Kthen { answer, model } ose null (pa AI / gabim)
-async function askClaude(question, history, subjectId) {
+async function askClaude(question, history, subjectId, orgId) {
   const c = getClient();
   if (!c) return null;
-  const context = JSON.stringify(buildContext(subjectId));
+  const context = JSON.stringify(buildContext(subjectId, orgId));
   const messages = [];
   for (const m of history) {
     const role = m.role === 'assistant' ? 'assistant' : 'user';

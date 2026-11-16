@@ -33,10 +33,10 @@ if (db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
     ['Epsilon Services', 'L99887766P'],
     ['Zeta Logjistikë', 'M44556677Q'],
   ];
-  const ins = db.prepare('INSERT INTO subjects (name,nipt,ealbania_user,ealbania_pass,status,created_by) VALUES (?,?,?,?,?,?)');
+  const ins = db.prepare('INSERT INTO subjects (name,nipt,ealbania_user,ealbania_pass,status,created_by,org_id) VALUES (?,?,?,?,?,?,1)');
   DEMO.forEach(([name, nipt]) => ins.run(name, nipt, nipt, encrypt('demo-fjalekalim'), 'active', adminId));
 
-  const subjects = db.prepare('SELECT id FROM subjects').all();
+  const subjects = db.prepare('SELECT id FROM subjects WHERE org_id=1').all();
   const services = db.prepare('SELECT id, code FROM services').all();
 
   // Rekorde + disa ekzekutime të kryera për të pasur të dhëna në panel/automatizim
@@ -76,21 +76,40 @@ if (db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
   }
 
   // Një njoftim mirëseardhjeje
-  db.prepare("INSERT INTO notifications (title, body, level) VALUES (?,?,?)")
+  db.prepare("INSERT INTO notifications (title, body, level, org_id) VALUES (?,?,?,1)")
     .run('Mirë se vini në Finbot', 'Platforma u konfigurua. Shtoni subjektet dhe nisni shërbimet.', 'info');
 }
 
-// Llogari demo për portalin e klientit (biznesi i parë) — vetëm kur nuk jemi në prodhim
+// Llogari demo (vetëm jashtë prodhimit): admini i studios #1, klienti i portalit, dhe një studio e dytë
+const DEMO = process.env.NODE_ENV !== 'production';
+const STUDIO_EMAIL = process.env.STUDIO_EMAIL || 'studio@finbot.al';
+const STUDIO_PASS = process.env.STUDIO_PASS || 'Studio1234!';
 const CLIENT_EMAIL = process.env.CLIENT_EMAIL || 'klient@finbot.al';
 const CLIENT_PASS = process.env.CLIENT_PASS || 'Klient1234!';
-if (process.env.NODE_ENV !== 'production' && !db.prepare('SELECT id FROM users WHERE email=?').get(CLIENT_EMAIL)) {
-  const first = db.prepare('SELECT id FROM subjects ORDER BY id LIMIT 1').get();
-  if (first) db.prepare("INSERT INTO users (name,email,password_hash,role,created_by,subject_id) VALUES (?,?,?,'client',?,?)")
-    .run('Klient demo', CLIENT_EMAIL, hashPassword(CLIENT_PASS), adminId, first.id);
+if (DEMO) {
+  if (!db.prepare('SELECT id FROM users WHERE email=?').get(STUDIO_EMAIL)) {
+    db.prepare("INSERT INTO users (name,email,password_hash,role,created_by,org_id) VALUES (?,?,?,'studio_admin',?,1)")
+      .run('Administratori i studios', STUDIO_EMAIL, hashPassword(STUDIO_PASS), adminId);
+  }
+  if (!db.prepare('SELECT id FROM users WHERE email=?').get(CLIENT_EMAIL)) {
+    const first = db.prepare('SELECT id FROM subjects WHERE org_id=1 ORDER BY id LIMIT 1').get();
+    if (first) db.prepare("INSERT INTO users (name,email,password_hash,role,created_by,subject_id,org_id) VALUES (?,?,?,'client',?,?,1)")
+      .run('Klient demo', CLIENT_EMAIL, hashPassword(CLIENT_PASS), adminId, first.id);
+  }
+  // Studio e dytë me dy biznese — për të provuar që studiot nuk shohin të dhënat e njëra-tjetrës
+  if (!db.prepare("SELECT id FROM orgs WHERE name='Studio Demo Durrës'").get()) {
+    const o = db.prepare("INSERT INTO orgs (name, nipt, plan_code, va_credits, created_by) VALUES ('Studio Demo Durrës','L11111111A','profesional',300,?)").run(ownerId).lastInsertRowid;
+    const ins = db.prepare("INSERT INTO subjects (name,nipt,ealbania_user,ealbania_pass,status,created_by,org_id) VALUES (?,?,?,?,'active',?,?)");
+    ins.run('Port Shipping SH.P.K.', 'K22222222B', 'K22222222B', encrypt('demo-fjalekalim'), ownerId, o);
+    ins.run('Plazh Hotel', 'L33333333C', 'L33333333C', encrypt('demo-fjalekalim'), ownerId, o);
+  }
 }
 
 console.log('\n  Të dhënat u mbollën me sukses.\n');
 console.log('  OWNER (i fshehtë):  ' + OWNER_EMAIL + '  /  ' + OWNER_PASS);
 console.log('  ADMIN:              ' + ADMIN_EMAIL + '  /  ' + ADMIN_PASS);
-if (process.env.NODE_ENV !== 'production') console.log('  KLIENT (portali):   ' + CLIENT_EMAIL + '  /  ' + CLIENT_PASS);
+if (DEMO) {
+  console.log('  STUDIO (admin):     ' + STUDIO_EMAIL + '  /  ' + STUDIO_PASS);
+  console.log('  KLIENT (portali):   ' + CLIENT_EMAIL + '  /  ' + CLIENT_PASS);
+}
 console.log('');

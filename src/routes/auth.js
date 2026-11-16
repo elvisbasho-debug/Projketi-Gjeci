@@ -4,6 +4,7 @@ const express = require('express');
 const db = require('../db');
 const audit = require('../audit');
 const { verifyPassword, signToken, requireAuth, hashPassword } = require('../auth');
+const { isPlatform, orgIdOf, getOrg, planInfo } = require('../org');
 
 const router = express.Router();
 
@@ -18,6 +19,10 @@ router.post('/login', (req, res) => {
   }
   if (user.status === 'suspended') {
     return res.status(403).json({ error: 'Llogaria juaj është pezulluar. Kontaktoni administratorin.' });
+  }
+  if (user.org_id && !['owner', 'admin'].includes(user.role)) {
+    const org = db.prepare('SELECT status FROM orgs WHERE id=?').get(user.org_id);
+    if (!org || org.status !== 'active') return res.status(403).json({ error: 'Studioja juaj është e pezulluar. Kontaktoni administratorin e platformës.' });
   }
 
   db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
@@ -44,7 +49,13 @@ router.post('/logout', requireAuth, (req, res) => {
 
 // Kush jam unë
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ user: req.user });
+  const platform = isPlatform(req.user);
+  const orgId = orgIdOf(req.user);
+  const o = orgId ? getOrg(orgId) : null;
+  res.json({
+    user: req.user, platform,
+    org: o ? { id: o.id, name: o.name, status: o.status, plan: planInfo(o) } : null,
+  });
 });
 
 // Ndrysho fjalëkalimin tim

@@ -13,6 +13,7 @@
 const express = require('express');
 const db = require('../db');
 const audit = require('../audit');
+const { getOrg, serviceLimit, serviceUsed } = require('../org');
 
 const router = express.Router();
 const DAILY_LIMIT = 20;
@@ -20,10 +21,13 @@ const ACTIVE = "('ne_radhe','ne_ekzekutim','duke_riprovuar')";
 
 router.use((req, res, next) => {
   if (req.user.role !== 'client' || !req.user.subject_id) return res.status(403).json({ error: 'Vetëm për llogaritë e klientëve' });
-  const sub = db.prepare('SELECT id, name, nipt, status FROM subjects WHERE id=?').get(req.user.subject_id);
+  const sub = db.prepare('SELECT id, name, nipt, status, org_id FROM subjects WHERE id=?').get(req.user.subject_id);
   if (!sub) return res.status(403).json({ error: 'Biznesi juaj nuk gjendet. Kontaktoni kontabilistin.' });
+  const org = getOrg(sub.org_id);
+  if (!org || org.status !== 'active') return res.status(403).json({ error: 'Shërbimi nuk është aktiv. Kontaktoni kontabilistin.' });
   req.subject = sub;
-  req.tvsh = db.prepare(`SELECT s.id, s.name, q.max_limit FROM services s LEFT JOIN service_quotas q ON q.service_id=s.id WHERE s.code='tvsh_deklarim'`).get();
+  const svc = db.prepare("SELECT id, name FROM services WHERE code='tvsh_deklarim'").get();
+  req.tvsh = { ...svc, max_limit: serviceLimit(sub.org_id, svc.id).max_limit, used: serviceUsed(sub.org_id, svc.id) };
   next();
 });
 
@@ -56,18 +60,16 @@ router.post('/tvsh', (req, res) => {
   // Biznesi duhet të jetë te shërbimi i TVSH-së (shtohet automatikisht brenda kuotës)
   const inService = db.prepare('SELECT 1 FROM service_records WHERE service_id=? AND subject_id=?').get(req.tvsh.id, sub.id);
   if (!inService) {
-    const used = db.prepare('SELECT COUNT(*) c FROM service_records WHERE service_id=?').get(req.tvsh.id).c;
-    if (used >= (req.tvsh.max_limit || 0)) return res.status(400).json({ error: 'Shërbimi nuk është aktiv për biznesin tuaj. Kontaktoni kontabilistin.' });
+    if (req.tvsh.used >= (req.tvsh.max_limit || 0)) return res.status(400).json({ error: 'Shërbimi nuk është aktiv për biznesin tuaj. Kontaktoni kontabilistin.' });
     db.prepare("INSERT INTO service_records (service_id, subject_id, status) VALUES (?,?,'ne_pritje')").run(req.tvsh.id, sub.id);
-    db.prepare('UPDATE service_quotas SET used=? WHERE service_id=?').run(used + 1, req.tvsh.id);
   }
 
   const ex = db.prepare("INSERT INTO executions (service_id, subject_id, status, run_by, action) VALUES (?,?,'ne_radhe',?,'info')")
     .run(req.tvsh.id, sub.id, 'klient:' + req.user.email);
   const r = db.prepare("INSERT INTO client_requests (subject_id, user_id, kind, execution_id, status) VALUES (?,?,'tvsh',?,'ne_radhe')")
     .run(sub.id, req.user.id, ex.lastInsertRowid);
-  db.prepare("INSERT INTO notifications (title, body, level) VALUES (?,?,'info')")
-    .run('Kërkesë TVSH nga klienti', `${sub.name} kërkoi TVSH-në në kohë reale.`);
+  db.prepare("INSERT INTO notifications (title, body, level, org_id) VALUES (?,?,'info',?)")
+    .run('Kërkesë TVSH nga klienti', `${sub.name} kërkoi TVSH-në në kohë reale.`, sub.org_id);
   audit.log(req.user, 'klienti_kerkoi_tvsh', 'subjects', sub.id, null);
   res.json({ ok: true, request: shapeReq(db.prepare('SELECT * FROM client_requests WHERE id=?').get(r.lastInsertRowid)) });
 });

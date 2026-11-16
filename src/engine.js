@@ -104,10 +104,10 @@ async function processOne(execId) {
 
     // Njoftim automatik kur ekzekutimi dështon
     if (!out.ok) {
-      db.prepare("INSERT INTO notifications (title, body, level) VALUES (?,?,?)").run(
+      db.prepare("INSERT INTO notifications (title, body, level, org_id) VALUES (?,?,?,?)").run(
         'Ekzekutim i dështuar',
         `${service.name} — ${subject ? subject.name : ''}: ${out.result || 'gabim'}`,
-        'error'
+        'error', subject ? subject.org_id : null
       );
     }
   } catch (e) {
