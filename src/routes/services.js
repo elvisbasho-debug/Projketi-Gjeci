@@ -287,8 +287,8 @@ router.get(REC + '/history.csv', requireRole('viewer'), loadService, loadRecord,
 
 // Statistika: vlera kryesore sipas muajve për 3 vitet e fundit (vlera e fundit e çdo muaji)
 function statsFor(svc, subjectId) {
-  const cols = schemaFor(svc.code).columns;
-  const metric = cols.find(c => c.type === 'money') || cols.find(c => c.type === 'num') || null;
+  const sch = schemaFor(svc.code), cols = sch.columns;
+  const metric = cols.find(c => c.key === sch.metric) || cols.find(c => c.type === 'money') || cols.find(c => c.type === 'num') || null;
   const y = new Date().getFullYear();
   const years = [y - 2, y - 1, y];
   const months = Array.from({ length: 12 }, () => years.map(() => null));

@@ -179,11 +179,11 @@ function renderApp() {
 
 /* ============ Router ============ */
 const ROUTES = {
-  '': viewDashboard, services: viewServices, service: viewServiceDetail, va: viewVA,
+  '': viewDashboard, services: viewServices, service: viewServiceDetail, record: viewRecord, va: viewVA,
   subjects: viewSubjects, subject: viewSubjectDetail, automation: viewAutomation, notifications: viewNotifications,
   support: viewSupport, users: viewUsers, audit: viewAudit, settings: viewSettings, profile: viewProfile,
 };
-const NAV_ALIAS = { service: 'services', subject: 'subjects' };
+const NAV_ALIAS = { service: 'services', record: 'services', subject: 'subjects' };
 let AUTO_TIMER = null;
 function route() {
   if (AUTO_TIMER) { clearInterval(AUTO_TIMER); AUTO_TIMER = null; }
@@ -196,7 +196,7 @@ function route() {
   const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', subject: 'Subjekti', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
   $('#pageTitle').textContent = titles[key] || 'Finbot';
   $('#view').innerHTML = '<div class="empty">Duke ngarkuar…</div>';
-  fn($('#view'), parts[1], parts[2]);
+  fn($('#view'), parts[1], parts[2], parts[3]);
 }
 
 /* ============ Modal ============ */
@@ -556,6 +556,204 @@ async function viewServiceDetail(el, id) {
   await load();
 }
 
+/* ============ Pamja e rekordit (subjekt × shërbim) me skeda ============ */
+const MUAJT_SH = ['JAN', 'SHK', 'MAR', 'PRI', 'MAJ', 'QER', 'KOR', 'GUS', 'SHT', 'TET', 'NËN', 'DHJ'];
+const LOG_LV = { info: 'Informacion', success: 'Sukses', warn: 'Paralajmërim', error: 'Gabim' };
+const REC_TABS = [['home', 'Kreu'], ['history', 'Historiku'], ['stats', 'Statistika'], ['logs', 'Regjistri'], ['settings', 'Cilësimet']];
+
+async function viewRecord(el, serviceId, subjectId, pane) {
+  pane = REC_TABS.find(t => t[0] === pane) ? pane : 'home';
+  const base = `/services/${serviceId}/records/${subjectId}`;
+  let d;
+  try { d = await api.get(base); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const { service: svc, record: rec } = d;
+  const acc = can('accountant');
+  $('#pageTitle').textContent = svc.name;
+  el.innerHTML = `
+    <button class="btn ghost sm" id="back" style="margin-bottom:14px">&larr; ${esc(svc.name)}</button>
+    <div class="card rec-card">
+      <div class="rec-head">
+        <div><div class="eyebrow">${esc(svc.name)}</div><h1>${esc(rec.subject_name)}</h1>
+          <div class="muted small">NIPT ${esc(rec.nipt || '—')} · <span class="badge ${rec.subject_status === 'active' ? 'b-active' : 'b-cancelled'}">${rec.subject_status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></div></div>
+        <div class="rec-head-actions">
+          <button class="btn ghost" id="rRefresh">${ICO.refresh}<span>Rifresko</span></button>
+          ${acc ? `<button class="btn danger" id="rStop" ${d.active ? '' : 'disabled'}>${ICO.stop}<span>Ndalo</span></button>` : ''}
+        </div>
+      </div>
+      <div class="tabs">${REC_TABS.map(([k, l]) => `<button class="tab ${k === pane ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
+      <div class="rec-body" id="pane"><div class="empty">Duke ngarkuar…</div></div>
+    </div>`;
+  $('#back').onclick = () => location.hash = '#/service/' + serviceId;
+  $$('.tab', el).forEach(b => b.onclick = () => { location.hash = `#/record/${serviceId}/${subjectId}/${b.dataset.tab}`; });
+  $('#rRefresh').onclick = () => route();
+  if ($('#rStop')) $('#rStop').onclick = () => confirmBox('Të ndalohen ekzekutimet e këtij subjekti te ky shërbim?', async () => {
+    const act = d.executions.filter(e => ['ne_radhe', 'ne_ekzekutim', 'duke_riprovuar'].includes(e.status));
+    for (const e of act) await api.post('/executions/' + e.id + '/stop').catch(() => {});
+    toast(`U ndaluan ${act.length}`); route();
+  }, { danger: true });
+
+  const P = $('#pane');
+  // rifreskim automatik kur ka ekzekutim aktiv (Kreu dhe Regjistri)
+  const autoRefresh = fn => { if (d.active && (pane === 'home' || pane === 'logs')) AUTO_TIMER = setInterval(() => { if (!$('.modal-bg')) fn(); }, 4000); };
+  const runAction = async key => {
+    try { await api.post(`/services/${serviceId}/run`, { subject_ids: [Number(subjectId)], action: key });
+      toast('U fut në radhë'); route(); } catch (e) { toast(e.message, true); }
+  };
+
+  /* ---- Kreu ---- */
+  if (pane === 'home') {
+    const ex = d.executions;
+    const running = d.active > 0;
+    P.innerHTML = `
+      <div class="rec-grid">
+        <section class="box">
+          <h3>Gjendja</h3>
+          <div class="kv"><span>Statusi</span>${running ? '<span class="badge b-sent pulse">Në ekzekutim</span>' : badge(REC_ST, rec.status)}</div>
+          <div class="kv"><span>Përditësuar</span><b>${timeAgo(rec.updated_at)}</b></div>
+          <div class="kv"><span>Përshkrimi</span><b>${esc(rec.result || 'Ende pa rezultat')}</b></div>
+          ${svc.columns.length ? `<div class="vals">${svc.columns.map(c => `<div class="val"><div class="muted">${esc(c.label)}</div><div class="v">${fmtValue(c, rec.data[c.key])}</div></div>`).join('')}</div>` : ''}
+          ${acc ? `<div class="btn-row">${svc.actions.map((a, i) => `<button class="btn ${i ? 'ghost' : ''}" data-act="${a.key}" ${running ? 'disabled' : ''}>${I.play}<span>${esc(a.label)}</span></button>`).join('')}</div>` : ''}
+        </section>
+        <section class="box">
+          <h3>Periudha dhe PDF</h3>
+          <div class="row2"><div class="field"><label>Data e fillimit</label><input type="date" id="pFrom" value="${esc(rec.period_from || '')}" ${acc ? '' : 'disabled'}></div>
+            <div class="field"><label>Data e mbarimit</label><input type="date" id="pTo" value="${esc(rec.period_to || '')}" ${acc ? '' : 'disabled'}></div></div>
+          <div class="btn-row">
+            ${acc ? '<button class="btn ghost" id="pSave">Ruaj periudhën</button>' : ''}
+            <button class="btn ghost" id="pPdf">${ICO.down}<span>PDF i gjendjes</span></button>
+            <button class="btn ghost" id="pZip">${ICO.down}<span>PDF-të e periudhës (.zip)</span></button>
+          </div>
+          <p class="muted small" style="margin:10px 0 0">ZIP-i ka një PDF për çdo muaj të periudhës, nga historiku i rezultateve.</p>
+        </section>
+      </div>
+      <section class="box" style="margin-top:16px">
+        <h3>Ekzekutimet e fundit</h3>
+        <div class="tbl-wrap"><table><thead><tr><th>Data</th><th>Veprimi</th><th>Statusi</th><th>Rezultati</th><th>Kohët</th><th></th></tr></thead>
+        <tbody>${ex.length ? ex.map(e => `<tr><td class="muted nowrap small">${esc(e.finished_at || e.created_at)}</td>
+          <td class="small">${esc((svc.actions.find(a => a.key === e.action) || {}).label || '—')}</td><td>${badge(EXEC_ST, e.status)}</td>
+          <td class="muted small">${esc(e.result || '—')}</td><td class="muted small nowrap">${secs(e.wait_ms)} / ${secs(e.process_ms)}</td>
+          <td class="num"><button class="btn ghost sm" data-log="${e.id}">Log-et</button></td></tr>`).join('') : '<tr><td colspan="6"><div class="empty">Ende pa ekzekutime</div></td></tr>'}</tbody></table></div>
+      </section>`;
+    $$('[data-act]', P).forEach(b => b.onclick = () => runAction(b.dataset.act));
+    $$('[data-log]', P).forEach(b => b.onclick = () => showLogs(b.dataset.log));
+    const per = () => `from=${$('#pFrom').value}&to=${$('#pTo').value}`;
+    if ($('#pSave')) $('#pSave').onclick = async () => { try { await api.req('PATCH', base, { period_from: $('#pFrom').value, period_to: $('#pTo').value }); toast('Periudha u ruajt'); } catch (e) { toast(e.message, true); } };
+    $('#pPdf').onclick = () => downloadFile(base + '/pdf', `deklarate-${rec.subject_name}.pdf`);
+    $('#pZip').onclick = () => downloadFile(base + '/zip?' + per(), `deklaratat-${rec.subject_name}.zip`);
+    autoRefresh(() => route());
+  }
+
+  /* ---- Historiku ---- */
+  if (pane === 'history') {
+    const y = new Date().getFullYear();
+    P.innerHTML = `
+      <div class="pane-tools">
+        <label>Nga muaji<input type="month" id="hFrom" value="${y - 2}-01"></label>
+        <label>Deri në muajin<input type="month" id="hTo" value="${y}-12"></label>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="hExp">${ICO.down}<span>Eksporto CSV</span></button>
+      </div>
+      <div class="tbl-wrap" id="hTable"><div class="empty">Duke ngarkuar…</div></div>`;
+    const load = async () => {
+      const qs = `from=${$('#hFrom').value}&to=${$('#hTo').value}`;
+      const rows = await api.get(base + '/history?' + qs);
+      $('#hTable').innerHTML = `<table><thead><tr><th>Data</th><th>Periudha</th><th>Veprimi</th><th>Statusi</th><th>Rezultati</th>${svc.columns.map(c => `<th class="${c.type === 'money' || c.type === 'num' ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.length ? rows.map(h => `<tr><td class="muted small nowrap">${esc(h.created_at)}</td><td class="nowrap"><b>${esc(h.period)}</b></td>
+          <td class="small">${esc((svc.actions.find(a => a.key === h.action) || {}).label || '—')}</td><td>${badge(REC_ST, h.status)}</td><td class="muted small">${esc(h.result || '—')}</td>
+          ${svc.columns.map(c => `<td class="${c.type === 'money' || c.type === 'num' ? 'num' : ''}">${fmtValue(c, h.data[c.key])}</td>`).join('')}</tr>`).join('')
+          : `<tr><td colspan="${5 + svc.columns.length}"><div class="empty">Asnjë rezultat në këtë periudhë</div></td></tr>`}</tbody></table>`;
+      $('#hExp').onclick = () => downloadFile(base + '/history.csv?' + qs, `historiku-${rec.subject_name}.csv`);
+    };
+    $('#hFrom').onchange = load; $('#hTo').onchange = load;
+    await load();
+  }
+
+  /* ---- Statistika ---- */
+  if (pane === 'stats') {
+    const st = await api.get(base + '/stats');
+    let sel = new Set(MUAJT_SH.map((_, i) => i));
+    const fmt = v => v == null ? '<span class="muted">—</span>' : (st.type === 'money' ? `<span class="${v < 0 ? 'neg' : ''}">${nf(v)}</span>` : nf(v));
+    const paint = () => {
+      const idx = [...sel].sort((a, b) => a - b);
+      const totals = st.years.map((_, yi) => idx.reduce((s, i) => s + (st.months[i][yi] || 0), 0));
+      const max = Math.max(1, ...idx.flatMap(i => st.months[i].map(v => Math.abs(v || 0))));
+      $('#sBody').innerHTML = `
+        <div class="stat-totals">${st.years.map((yr, yi) => `<div class="stat"><div class="label">${yr}</div><div class="value ${totals[yi] < 0 ? 'neg' : ''}">${nf(totals[yi])}</div><div class="muted small">Totali ${st.type === 'money' ? '(Lek)' : ''}</div></div>`).join('')}</div>
+        <div class="box" style="margin:16px 0"><h3>Krahasimi mujor <span class="muted small">· ${esc(st.metric)}</span></h3>
+          <div class="gbars">${idx.map(i => `<div class="gcol"><div class="gset">${st.months[i].map((v, yi) => `<div class="gbar y${yi} ${v < 0 ? 'negbar' : ''}" style="height:${Math.round(Math.abs(v || 0) / max * 100)}%" title="${st.years[yi]} ${MUAJT_SH[i]}: ${v == null ? '—' : nf(v)}"></div>`).join('')}</div><small>${MUAJT_SH[i]}</small></div>`).join('')}</div>
+          <div class="legend">${st.years.map((yr, yi) => `<span><i class="y${yi}"></i>${yr}</span>`).join('')}</div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Muaji</th>${st.years.map(y => `<th class="num">${y}</th>`).join('')}</tr></thead>
+          <tbody>${idx.map(i => `<tr><td><b>${MUAJT_SH[i]}</b></td>${st.months[i].map(v => `<td class="num">${fmt(v)}</td>`).join('')}</tr>`).join('')}
+          <tr class="total"><td>Totali</td>${totals.map(v => `<td class="num">${fmt(v)}</td>`).join('')}</tr></tbody></table></div>`;
+    };
+    P.innerHTML = `
+      <div class="pane-tools">
+        <div class="chips">${MUAJT_SH.map((m, i) => `<button class="chip on" data-m="${i}">${m}</button>`).join('')}<button class="chip" id="mAll">Të gjithë</button></div>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="sPdf">${ICO.down}<span>Raport PDF</span></button>
+        <button class="btn ghost" id="sMax">Maksimizo</button>
+      </div>
+      <div id="sBody"></div>`;
+    $$('[data-m]', P).forEach(c => c.onclick = () => { const i = Number(c.dataset.m); if (sel.has(i) && sel.size > 1) sel.delete(i); else sel.add(i); c.classList.toggle('on', sel.has(i)); paint(); });
+    $('#mAll').onclick = () => { sel = new Set(MUAJT_SH.map((_, i) => i)); $$('[data-m]', P).forEach(c => c.classList.add('on')); paint(); };
+    $('#sPdf').onclick = () => downloadFile(base + '/stats.pdf', `statistika-${rec.subject_name}.pdf`);
+    $('#sMax').onclick = () => { const c = $('.rec-card'); c.classList.toggle('maxi'); $('#sMax').textContent = c.classList.contains('maxi') ? 'Minimizo' : 'Maksimizo'; };
+    paint();
+  }
+
+  /* ---- Regjistri ---- */
+  if (pane === 'logs') {
+    P.innerHTML = `
+      <div class="pane-tools">
+        <input class="search" id="lq" placeholder="Kërko në regjistër…">
+        <select id="llv"><option value="">Të gjitha nivelet</option>${Object.entries(LOG_LV).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+        <span class="spacer"></span><span class="muted small" id="lInfo"></span>
+      </div>
+      <div class="logbox tall" id="lBox"></div>`;
+    const load = async () => {
+      const logs = await api.get(base + `/logs?q=${encodeURIComponent($('#lq').value)}&level=${$('#llv').value}`);
+      $('#lInfo').textContent = `${logs.length} rreshta${d.active ? ' · rifreskim automatik' : ''}`;
+      $('#lBox').innerHTML = logs.map(l => `<div class="logline lv-${l.level}"><span class="muted">${esc(l.created_at)}</span> <b>[${esc(LOG_LV[l.level] || l.level)}]</b> ${esc(l.message)} <span class="muted">#${l.execution_id}</span></div>`).join('') || '<div class="muted">Asnjë rresht</div>';
+    };
+    let t; $('#lq').oninput = () => { clearTimeout(t); t = setTimeout(load, 250); };
+    $('#llv').onchange = load;
+    await load();
+    autoRefresh(load);
+  }
+
+  /* ---- Cilësimet e subjektit ---- */
+  if (pane === 'settings') {
+    const sub = await api.get('/subjects/' + subjectId);
+    P.innerHTML = `
+      <section class="box" style="max-width:640px">
+        <h3>Të dhënat e subjektit</h3>
+        <div class="row2"><div class="field"><label>Emri i subjektit *</label><input id="cName" value="${esc(sub.name)}" ${acc ? '' : 'disabled'}></div>
+          <div class="field"><label>NIPT i subjektit *</label><input id="cNipt" value="${esc(sub.nipt || '')}" ${acc ? '' : 'disabled'}></div></div>
+        <div class="row2"><div class="field"><label>Përdoruesi e-Albania</label><input id="cUser" value="${esc(sub.ealbania_user || '')}" ${acc ? '' : 'disabled'}></div>
+          <div class="field"><label>Statusi i subjektit *</label><select id="cSt" ${acc ? '' : 'disabled'}><option value="active" ${sub.status === 'active' ? 'selected' : ''}>Aktiv</option><option value="inactive" ${sub.status === 'inactive' ? 'selected' : ''}>Joaktiv</option></select></div></div>
+        <div class="field"><label>Fjalëkalimi e-Albania ${sub.has_ealbania_pass ? '<span class="badge b-active" style="font-size:10px">i ruajtur</span>' : ''}</label>
+          <div class="pass-wrap"><input id="cPass" type="password" placeholder="${sub.has_ealbania_pass ? 'Fjalëkalim i ruajtur; vendos një të ri për ta zëvendësuar' : 'Ruhet i enkriptuar'}" ${acc ? '' : 'disabled'} autocomplete="new-password">
+          <label class="check small"><input type="checkbox" id="cShow"> Shfaq</label></div></div>
+        ${acc ? `<div class="btn-row" style="justify-content:space-between">
+          <button class="btn ghost danger-text" id="cRemove">${ICO.trash}<span>Hiq nga ky shërbim</span></button>
+          <button class="btn" id="cSave">Ruaj</button></div>` : '<p class="muted small">Vetëm lexim.</p>'}
+      </section>`;
+    $('#cShow').onchange = e => $('#cPass').type = e.target.checked ? 'text' : 'password';
+    if (!acc) return;
+    $('#cSave').onclick = async () => {
+      const name = $('#cName').value.trim(), nipt = $('#cNipt').value.trim();
+      if (!name || !nipt) return toast('Emri dhe NIPT-i janë të detyrueshëm', true);
+      try {
+        await api.put('/subjects/' + subjectId, { name, nipt, ealbania_user: $('#cUser').value.trim(), status: $('#cSt').value, ealbania_pass: $('#cPass').value, notes: sub.notes });
+        toast('U ruajt'); route();
+      } catch (e) { toast(e.message, true); }
+    };
+    $('#cRemove').onclick = () => confirmBox(`Të hiqet "${sub.name}" nga "${svc.name}"? Rezultatet e këtij shërbimi për subjektin fshihen; subjekti mbetet te "Subjektet".`, async () => {
+      await api.del(`/services/${serviceId}/subjects/${subjectId}`); toast('U hoq'); location.hash = '#/service/' + serviceId;
+    }, { danger: true });
+  }
+}
+
 /* ============ Subjects ============ */
 async function viewSubjects(el) {
   const list = await api.get('/subjects');
@@ -614,6 +812,7 @@ async function viewSubjectDetail(el, id) {
             <td class="num">
               ${can('accountant') ? `<button class="btn ghost sm" data-run="${r.service_id}">${I.play}</button>` : ''}
               <button class="btn ghost sm" data-pdf="${r.service_id}">PDF</button>
+              <a class="btn ghost sm" href="#/record/${r.service_id}/${s.id}">Hap</a>
             </td></tr>`).join('') : '<tr><td colspan="5"><div class="empty">Ky subjekt nuk është regjistruar në asnjë shërbim</div></td></tr>'}</tbody>
         </table></div>
       </div>

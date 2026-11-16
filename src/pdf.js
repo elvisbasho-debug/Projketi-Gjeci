@@ -72,7 +72,7 @@ function declarationPage(company, service, rec) {
       <div class="meta">
         <div><b>Subjekti:</b> ${esc(rec.subject_name)}</div>
         <div><b>NIPT:</b> ${esc(rec.nipt || '—')}</div>
-        <div><b>Statusi:</b> ${esc(rec.status || '—')}</div>
+        <div><b>Statusi:</b> ${esc(({ ne_pritje: 'Në pritje', kryer: 'Kryer', deshtoi: 'Dështoi', deklaruar: 'Deklaruar' })[rec.status] || rec.status || '—')}</div>
         <div><b>Data:</b> ${today}</div>
       </div>
       ${rec.period_from || rec.period_to ? `<div class="meta"><b>Periudha:</b> ${esc(rec.period_from || '…')} – ${esc(rec.period_to || '…')}</div>` : ''}

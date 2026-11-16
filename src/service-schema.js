@@ -34,6 +34,7 @@ const SCHEMA = {
       { key: 'kontrollo', label: 'Kontrollo deklarimin' },
       { key: 'info', label: 'Mblidh informacionin e TVSH-së' },
     ],
+    metric: 'tvsh_mujore', // treguesi i Statistikave
     guide: 'Deklaro TVSH-në për periudhën, kontrollo nëse deklarimi është pranuar dhe mblidh informacionin (kredi, TVSH mujore, totali). Vlerat negative tregojnë kredi për t\'u bartur.',
   },
   detyrime_realtime: {
