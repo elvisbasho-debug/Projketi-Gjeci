@@ -1,28 +1,45 @@
-# Konfigurim automatik për Render.com (vendosje me shfletues, pa terminal).
-# Render e lexon këtë skedar dhe e ndërton vetë aplikacionin nga Dockerfile.
+# Konfigurim automatik për Render.com (Blueprint). Render ndërton aplikacionin nga Dockerfile.
 services:
   - type: web
     name: finbot
-    env: docker
-    plan: free            # falas për provë; për përdorim real zgjidh një plan me më shumë memorie
+    runtime: docker
+    plan: starter         # ~7 $/muaj: i nevojshëm për diskun; për shumë PDF/robotë zgjidh "standard" (2 GB RAM)
+    region: frankfurt
     healthCheckPath: /api/health
     autoDeploy: true
+    branch: main
+    disk:
+      name: finbot-data
+      mountPath: /data     # baza SQLite ruhet këtu dhe nuk humbet në rifreskime
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: DB_PATH
         value: /data/finbot.db
-      # Çelësat e sigurisë i gjeneron Render vetë (nuk i shkruan dot kush):
+      # Çelësat e sigurisë i gjeneron Render vetë. Mos i ndryshoni pasi të keni të dhëna:
+      # CRED_KEY enkripton fjalëkalimet e bizneseve.
       - key: JWT_SECRET
         generateValue: true
       - key: CRED_KEY
         generateValue: true
-      # Llogaritë fillestare — fjalëkalimet i vendos TI te paneli i Render:
+      # Llogaria e pronarit (krijohet vetëm në nisjen e parë). Fjalëkalimin e vendosni ju te Render.
       - key: OWNER_EMAIL
         value: owner@finbot.al
       - key: OWNER_PASS
         sync: false
+      # Opsionale: admin i dytë i platformës (lëreni bosh nëse s'duhet)
       - key: ADMIN_EMAIL
         value: admin@finbot.al
       - key: ADMIN_PASS
+        sync: false
+      # Opsionale: Pyet VA me Claude
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Robotët realë: bosh = simulim; "tvsh_deklarim" = konektori i C@ts
+      - key: ROBOTS_REAL
+        value: ""
+      - key: CATS_MONTHLY_PATH
+        sync: false
+      - key: CATS_LEDGER_PATH
         sync: false

@@ -21,6 +21,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const app = express();
+app.set('trust proxy', 1); // Render/Docker: HTTPS përfundon te proxy-ja → cookie "secure" punon saktë
+app.disable('x-powered-by');
+// Header-a bazë sigurie
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 

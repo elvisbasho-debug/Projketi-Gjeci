@@ -270,8 +270,10 @@ function migrate() {
     ins.run('studio_plus', 'Studio+ (mbi 150)', 150, 179, 0.9, 2000, 4);
   }
 
-  // Migrimi: të dhënat e vjetra (një studio) kalojnë te studioja #1
-  if (!db.prepare('SELECT COUNT(*) c FROM orgs').get().c) {
+  // Migrimi: të dhënat e vjetra (një studio) kalojnë te studioja #1.
+  // Në një instalim të ri prodhimi nuk krijohet studio demo: owner-i krijon studiot nga "Studiot".
+  const legacy = db.prepare('SELECT COUNT(*) c FROM subjects').get().c > 0;
+  if (!db.prepare('SELECT COUNT(*) c FROM orgs').get().c && (legacy || process.env.NODE_ENV !== 'production')) {
     const row = db.prepare("SELECT value FROM settings WHERE key='company'").get();
     const c = row ? JSON.parse(row.value) : {};
     db.prepare("INSERT INTO orgs (id, name, nipt, email, phone, address, plan_code, currency, va_credits) VALUES (1,?,?,?,?,?, 'start', ?, ?)")

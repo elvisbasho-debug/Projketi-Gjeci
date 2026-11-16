@@ -5,3 +5,5 @@ data.db-wal
 .git
 *.log
 .env
+.claude
+docs

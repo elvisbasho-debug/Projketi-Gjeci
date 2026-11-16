@@ -8,10 +8,17 @@ const { hashPassword } = require('./auth');
 const { encrypt } = require('./crypto');
 const profiles = require('./profiles');
 
+// Në prodhim: asnjë fjalëkalim i parazgjedhur dhe asnjë e dhënë demo.
+const PROD = process.env.NODE_ENV === 'production';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'owner@finbot.al';
-const OWNER_PASS = process.env.OWNER_PASS || 'Owner1234!';
+const OWNER_PASS = process.env.OWNER_PASS || (PROD ? '' : 'Owner1234!');
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@finbot.al';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'Admin1234!';
+const ADMIN_PASS = process.env.ADMIN_PASS || (PROD ? '' : 'Admin1234!');
+
+if (PROD && OWNER_PASS.length < 10) {
+  console.error('  GABIM: në prodhim vendosni OWNER_PASS (të paktën 10 karaktere).');
+  process.exit(1);
+}
 
 function upsertUser(name, email, pass, role, createdBy) {
   const ex = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
@@ -21,10 +28,10 @@ function upsertUser(name, email, pass, role, createdBy) {
 }
 
 const ownerId = upsertUser('Pronari', OWNER_EMAIL, OWNER_PASS, 'owner', null);
-const adminId = upsertUser('Administratori', ADMIN_EMAIL, ADMIN_PASS, 'admin', ownerId);
+const adminId = ADMIN_PASS ? upsertUser('Administratori', ADMIN_EMAIL, ADMIN_PASS, 'admin', ownerId) : ownerId;
 
-// Subjekte demo
-if (db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
+// Subjekte demo (vetëm jashtë prodhimit)
+if (!PROD && db.prepare('SELECT COUNT(*) c FROM subjects').get().c === 0) {
   const DEMO = [
     ['Alfa Trading SH.P.K.', 'K12345678L'],
     ['Beta Market SH.P.K.', 'L87654321M'],
@@ -106,8 +113,10 @@ if (DEMO) {
 }
 
 console.log('\n  Të dhënat u mbollën me sukses.\n');
-console.log('  OWNER (i fshehtë):  ' + OWNER_EMAIL + '  /  ' + OWNER_PASS);
-console.log('  ADMIN:              ' + ADMIN_EMAIL + '  /  ' + ADMIN_PASS);
+// Në prodhim fjalëkalimet nuk shkruhen kurrë në log-e
+const show = p => (PROD ? '(nga OWNER_PASS / ADMIN_PASS)' : p);
+console.log('  OWNER (i fshehtë):  ' + OWNER_EMAIL + '  /  ' + show(OWNER_PASS));
+if (ADMIN_PASS) console.log('  ADMIN:              ' + ADMIN_EMAIL + '  /  ' + show(ADMIN_PASS));
 if (DEMO) {
   console.log('  STUDIO (admin):     ' + STUDIO_EMAIL + '  /  ' + STUDIO_PASS);
   console.log('  KLIENT (portali):   ' + CLIENT_EMAIL + '  /  ' + CLIENT_PASS);

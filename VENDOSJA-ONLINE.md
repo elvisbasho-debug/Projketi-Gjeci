@@ -1,96 +1,65 @@
-# Si ta vësh Finbot-in online VETË (vetëm me shfletues)
+# Si ta vini Finbot-in online te Render (vetëm me shfletues)
 
-Pa terminal, pa server, pa IT. Vetëm klikime në shfletues. Koha: ~15 minuta.
-Unë (Claude) e kam bërë pjesën teknike; ti ndjek hapat më poshtë.
-
----
-
-## Çfarë të duhet
-- Një llogari **GitHub** (falas) — ku rri kodi.
-- Një llogari **Render.com** (falas) — që e mban faqen online.
-- 2 fjalëkalime që i zgjedh ti (për Pronarin dhe Admin-in).
-
-> Kodi është vendosur tashmë në GitHub nga unë. Ti vetëm e lidh me Render.
+Koha: ~20 minuta. Pjesa teknike është gati (Dockerfile + `render.yaml`); ju ndiqni hapat.
 
 ---
 
-## Hapat
+## 0) Para se të nisni
+1. **Bashkoni PR-në** në GitHub: [Pull Request #1](https://github.com/elvisbasho-debug/Projketi-Gjeci/pull/1) → **Merge pull request**.
+   Render ndërton degën **`main`**.
+2. (E këshillueshme) GitHub → repo → **Settings → General → Default branch** → `main`.
+3. Zgjidhni një **fjalëkalim të fortë për pronarin** (të paktën 10 karaktere). Pa të, aplikacioni nuk niset.
 
-### 1) Hap një llogari në Render
-- Shko te **https://render.com** → **Get Started** → **Sign up with GitHub**.
-- Lejo Render të shohë llogarinë tënde GitHub (klikim "Authorize").
+## 1) Llogari te Render
+- **https://render.com** → **Get Started** → **Sign up with GitHub** → lejoni qasjen te `Projketi-Gjeci`.
 
-### 2) Krijo shërbimin nga "Blueprint"
-- Në Render shtyp **New +** (lart djathtas) → **Blueprint**.
-- Zgjidh repo-n **`Projketi-Gjeci`** nga lista.
-- Render do të lexojë vetë skedarin `render.yaml` dhe do të tregojë një shërbim me emrin **finbot**.
+## 2) Krijoni shërbimin nga Blueprint
+- Render → **New +** → **Blueprint** → zgjidhni **`Projketi-Gjeci`**.
+- Render lexon `render.yaml` dhe tregon shërbimin **finbot** me:
+  - planin **Starter** (~7 $/muaj, i nevojshëm sepse plani falas nuk ka disk dhe të dhënat do të humbnin),
+  - diskun **finbot-data** te `/data` (1 GB), ku ruhet baza.
 
-### 3) Vendos 2 fjalëkalimet e tua
-Render do të kërkojë dy vlera (sepse i lamë bosh me qëllim, për siguri):
-- **OWNER_PASS** → fjalëkalimi yt si Pronar (zgjidh një të fortë, p.sh. 12+ shkronja/numra).
-- **ADMIN_PASS** → fjalëkalimi i Admin-it (nëse do një ndihmës).
+## 3) Plotësoni vlerat që kërkon Render
+| Fusha | Çfarë vendosni |
+|---|---|
+| **OWNER_PASS** | fjalëkalimi juaj si pronar (i detyrueshëm, 10+ karaktere) |
+| ADMIN_PASS | bosh, ose fjalëkalim për një admin të dytë të platformës |
+| ANTHROPIC_API_KEY | bosh, ose çelësi për Pyet VA me Claude |
+| CATS_MONTHLY_PATH / CATS_LEDGER_PATH | bosh tani (plotësohen kur të konfirmohet C@ts) |
 
-> Çelësat e tjerë (JWT_SECRET, CRED_KEY) i krijon Render vetë — mos i prek.
+`JWT_SECRET` dhe `CRED_KEY` i krijon Render vetë. **Mos i ndryshoni më pas**:
+`CRED_KEY` enkripton fjalëkalimet e bizneseve dhe, po ta ndryshoni, ato nuk lexohen më.
 
-### 4) Shtyp "Apply" / "Create"
-- Render fillon ndërtimin. Zgjat **3–6 minuta** (po shkarkon gjithçka vetë).
-- Kur të shkruajë **"Live"** me jeshile, është gati.
+## 4) Apply
+- Ndërtimi zgjat **5–10 minuta**, sepse shkarkon edhe Chromium-in për PDF-të.
+- Kur shfaqet **Live** me ngjyrë jeshile, aplikacioni është gati.
 
-### 5) Hap faqen tënde
-- Render të jep një adresë si **`https://finbot-xxxx.onrender.com`**.
-- Hape → do shohësh ekranin e hyrjes së Finbot.
-- Hyr me: **owner@finbot.al** dhe fjalëkalimin që vendose te OWNER_PASS.
-- Ndrysho emailin/fjalëkalimin nga **Profili im** pas hyrjes së parë.
-
-Gati — faqja jote është online dhe e gjallë. 🎉
-
----
-
-## E rëndësishme për përdorim REAL (jo vetëm provë)
-
-**a) Mos i humb të dhënat.** Plani falas i Render e fshin bazën sa herë rifreskohet.
-Për ta ruajtur përgjithmonë:
-- Në Render → shërbimi **finbot** → **Settings** → **Disks** → **Add Disk**.
-- Emri: `finbot-data`, **Mount Path:** `/data`, Madhësia: `1 GB`. Ruaj.
-- (Kjo kërkon një plan me pagesë — shiko pikën c.)
-
-**b) Memoria (për PDF dhe robotë).** Nëse PDF-të ose robotët japin gabim "memory",
-kalo te një plan me **2 GB RAM**: Render → finbot → **Settings** → **Instance Type** → zgjidh **Standard**.
-
-**c) Kostoja (orientuese).** Provë = falas. Përdorim real me ruajtje të dhënash dhe
-memorie të mjaftueshme ≈ **7–25 USD/muaj**. Pagesa bëhet te Render.
-
-**d) Robotët realë.** Sot robotët simulojnë. Për deklarim të vërtetë në portalet e
-tatimeve më thuaj dhe të ndihmoj ta plotësojmë konektorin e parë hap pas hapi.
+## 5) Hyrja e parë
+- Hapni adresën që jep Render (`https://finbot-xxxx.onrender.com`).
+- Hyni me **owner@finbot.al** dhe OWNER_PASS.
+- Në një instalim të ri **nuk ka studio**. Shkoni te **Studiot → Studio e re**, krijoni studion e parë
+  me administratorin e saj, pastaj **Hyr** për të punuar brenda saj.
+- Te **Studiot → Faturat → Të dhënat e lëshuesit** plotësoni emrin, NIPT-in dhe IBAN-in tuaj për faturat.
 
 ---
 
-## Lidhja e domain-it tënd (finbot.magmabots.com)
-
-Programi punon te Render; adresa e bukur `finbot.magmabots.com` tregohet nga Render me një rregull DNS.
-
-**Hapi 1 — te Render:**
-- Render → shërbimi **finbot** → **Settings** → **Custom Domains** → **Add Custom Domain**.
-- Shkruaj: `finbot.magmabots.com` → Render të jep një vlerë **CNAME** (diçka si `finbot-xxxx.onrender.com`). Kopjoje.
-
-**Hapi 2 — te vendi ku menaxhohet DNS-i i magmabots.com** (Netlify, Cloudflare, ose ku e ke blerë domain-in):
-- Shto një regjistrim të ri **CNAME**:
-  - **Name / Host:** `finbot`
-  - **Value / Target:** vlera që të dha Render (`finbot-xxxx.onrender.com`)
-  - Ruaj.
-- Nëse DNS-i yt është te **Netlify**: Netlify → **Domains** → magmabots.com → **Add new record** → Type **CNAME**, Name `finbot`, Value = vlera nga Render.
-
-**Hapi 3 — prit pak:**
-- Pas 5–30 minutash (ndonjëherë deri 1 orë) adresa fillon të punojë.
-- Render e vendos vetë **HTTPS-në** falas për `finbot.magmabots.com`.
-
-> Shënim: Netlify (ose kushdo tjetër) përdoret vetëm për DNS-in e adresës. Programi punon te Render.
+## Domain-i: finbot.magmabots.com
+1. Render → **finbot** → **Settings → Custom Domains → Add** → `finbot.magmabots.com`. Render jep një vlerë **CNAME**.
+2. Te DNS-i i `magmabots.com` (Netlify, Cloudflare ose regjistruesi) shtoni:
+   **CNAME**, Name `finbot`, Value = vlera nga Render.
+3. Pritni 5–30 minuta. Render vendos vetë **HTTPS**-në.
 
 ---
+
+## E rëndësishme
+- **Memoria:** Starter ka 512 MB. Nëse PDF-të ose robotët japin gabim memorieje, kaloni te **Standard** (2 GB)
+  te Render → Settings → Instance Type.
+- **Kopje rezervë:** Render → Disks → **Snapshots** bën kopje ditore të diskut. Kontrollojeni që është aktiv.
+- **Robotët:** sipas parazgjedhjes punojnë në simulim. Konektori real i TVSH-së aktivizohet me
+  `ROBOTS_REAL=tvsh_deklarim` pasi të plotësohen adresat e C@ts (shih `docs/KONEKTORI-TVSH.md`).
+- **Deklarimi real** mbetet i bllokuar pa `ROBOTS_ALLOW_DECLARE=1`. Vendoseni vetëm me autorizim me shkrim nga klientët.
 
 ## Nëse ngec diku
-Më shkruaj çfarë shfaqet në ekran (ose dërgo një foto) dhe të them saktë ku të klikosh.
-Gabimet më të shpeshta:
-- "Blueprint nuk gjen repo-n" → sigurohu që te hapi 1 i dhe Render leje për repo-n.
-- "Build failed" → dërgomë tekstin e gabimit; zakonisht zgjidhet me një ndryshim të vogël.
-- Faqja hapet por s'hyn dot → sigurohu që vendose OWNER_PASS te hapi 3.
+- **"Build failed"**: kopjoni tekstin e gabimit nga Render → Logs dhe ma dërgoni.
+- **Faqja hapet por s'mund të hyni**: kontrolloni që OWNER_PASS është vendosur para nisjes së parë.
+- **"Zgjidhni studion"**: si pronar, krijoni ose zgjidhni një studio te **Studiot**.
