@@ -70,4 +70,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n  Finbot po punon → http://localhost:${PORT}`);
   engine.start();
+  require('./src/billing').start();   // faturat mujore të studiove + kujtesat për të vonuarat
 });

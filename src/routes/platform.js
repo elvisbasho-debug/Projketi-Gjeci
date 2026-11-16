@@ -60,6 +60,7 @@ router.post('/orgs', (req, res) => {
   if (String(b.admin_password).length < 8) return res.status(400).json({ error: 'Fjalëkalimi duhet të ketë të paktën 8 karaktere' });
   if (db.prepare('SELECT id FROM users WHERE email=?').get(b.admin_email)) return res.status(409).json({ error: 'Email-i i administratorit është i zënë' });
   const credits = db.prepare('SELECT ai_credits FROM plans WHERE code=?').get(b.plan_code).ai_credits;
+  if (b.trial && !b.trial_ends) { const d = new Date(); d.setDate(d.getDate() + 14); b.trial_ends = d.toISOString().slice(0, 10); } // provë 14-ditore
   const id = db.transaction(() => {
     const o = db.prepare(`INSERT INTO orgs (name, nipt, email, phone, address, plan_code, max_subjects, allow_overage, trial_ends, va_credits, created_by)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(String(b.name).trim(), b.nipt || null, b.email || null, b.phone || null, b.address || null, b.plan_code,
@@ -93,6 +94,53 @@ router.post('/active-org', (req, res) => {
   db.prepare('UPDATE users SET active_org_id=? WHERE id=?').run(id, req.user.id);
   res.json({ ok: true, org_id: id });
 });
+
+/* ---------- Faturat ---------- */
+const billing = require('../billing');
+const { htmlToPdf, buildInvoiceDoc } = require('../pdf');
+
+router.get('/invoices', (req, res) => {
+  const args = []; let where = '1=1';
+  if (req.query.org_id) { where += ' AND i.org_id=?'; args.push(req.query.org_id); }
+  if (req.query.period) { where += ' AND i.period=?'; args.push(req.query.period); }
+  const rows = db.prepare(`SELECT i.*, o.name AS org_name FROM invoices i JOIN orgs o ON o.id=i.org_id WHERE ${where} ORDER BY i.id DESC LIMIT 300`).all(...args)
+    .map(i => ({ ...i, display_status: billing.displayStatus(i) }));
+  const sum = s => Math.round(rows.filter(i => i.display_status === s).reduce((t, i) => t + i.total, 0) * 100) / 100;
+  res.json({ invoices: rows, totals: { paid: sum('paguar'), unpaid: sum('e_papaguar'), overdue: sum('vonuar') } });
+});
+
+router.post('/invoices/generate', (req, res) => {
+  try {
+    const r = billing.generateInvoices((req.body && req.body.period) || billing.prevMonth());
+    audit.log(req.user, 'leshoi_faturat', 'invoices', null, r);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/invoices/:id/status', (req, res) => {
+  const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Fatura nuk u gjet' });
+  const status = ['paguar', 'e_papaguar', 'anuluar'].includes(req.body.status) ? req.body.status : null;
+  if (!status) return res.status(400).json({ error: 'Status i pavlefshëm' });
+  db.prepare('UPDATE invoices SET status=?, paid_at=? WHERE id=?').run(status, status === 'paguar' ? new Date().toISOString().slice(0, 10) : null, inv.id);
+  audit.log(req.user, 'ndryshoi_faturen', 'invoices', inv.id, { status });
+  res.json({ ok: true, status });
+});
+
+router.get('/invoices/:id/pdf', async (req, res) => {
+  const inv = db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Fatura nuk u gjet' });
+  try {
+    const pdf = await htmlToPdf(buildInvoiceDoc(billing.issuer(), getOrg(inv.org_id), { ...inv, display_status: billing.displayStatus(inv) }));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${inv.number}.pdf"`);
+    res.send(pdf);
+  } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
+});
+
+// Të dhënat e platformës si lëshuese e faturave
+router.get('/issuer', (req, res) => res.json(billing.issuer()));
+router.put('/issuer', (req, res) => { const v = billing.saveIssuer(req.body); audit.log(req.user, 'ndryshoi_te_dhenat_e_platformes', 'settings', null, null); res.json(v); });
 
 /* ---------- Adminët e platformës (owner i fshehtë) ---------- */
 router.get('/admins', (req, res) => {

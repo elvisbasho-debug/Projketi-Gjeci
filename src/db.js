@@ -235,6 +235,32 @@ function migrate() {
   addColumn('audit_log', 'org_id', 'INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS ix_subjects_org ON subjects(org_id)');
 
+  /* ---------- Faturat e studiove (abonimi) ---------- */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id       INTEGER NOT NULL REFERENCES orgs(id),
+      number       TEXT NOT NULL UNIQUE,          -- FB-2026-0001
+      period       TEXT NOT NULL,                 -- YYYY-MM (muaji i shërbimit)
+      plan_code    TEXT, plan_name TEXT,
+      base_price   REAL NOT NULL DEFAULT 0,
+      subjects     INTEGER NOT NULL DEFAULT 0,    -- biznese në momentin e faturimit
+      plan_limit   INTEGER NOT NULL DEFAULT 0,
+      extra        INTEGER NOT NULL DEFAULT 0,
+      extra_price  REAL NOT NULL DEFAULT 0,
+      subtotal     REAL NOT NULL DEFAULT 0,
+      vat_rate     REAL NOT NULL DEFAULT 0.2,
+      vat          REAL NOT NULL DEFAULT 0,
+      total        REAL NOT NULL DEFAULT 0,
+      status       TEXT NOT NULL DEFAULT 'e_papaguar',  -- e_papaguar | paguar | anuluar
+      issued_at    TEXT NOT NULL DEFAULT (date('now')),
+      due_date     TEXT NOT NULL,
+      paid_at      TEXT,
+      reminded_at  TEXT,
+      UNIQUE(org_id, period)
+    );
+  `);
+
   // Planet e propozuara (owner/adminët i ndryshojnë nga faqja "Studiot")
   if (!db.prepare('SELECT COUNT(*) c FROM plans').get().c) {
     const ins = db.prepare('INSERT INTO plans (code,name,max_subjects,price_month,price_extra,ai_credits,sort_order) VALUES (?,?,?,?,?,?,?)');

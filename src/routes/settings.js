@@ -24,4 +24,24 @@ router.put('/company', requireRole('studio_admin'), (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---- Faturat e abonimit të studios (vetëm lexim + PDF) ---- */
+const billing = require('../billing');
+const { htmlToPdf, buildInvoiceDoc } = require('../pdf');
+
+router.get('/invoices', requireRole('studio_admin'), (req, res) => {
+  res.json(db.prepare('SELECT * FROM invoices WHERE org_id=? AND status != ? ORDER BY id DESC').all(req.orgId, 'anuluar')
+    .map(i => ({ ...i, display_status: billing.displayStatus(i) })));
+});
+
+router.get('/invoices/:id/pdf', requireRole('studio_admin'), async (req, res) => {
+  const inv = db.prepare('SELECT * FROM invoices WHERE id=? AND org_id=?').get(req.params.id, req.orgId);
+  if (!inv) return res.status(404).json({ error: 'Fatura nuk u gjet' });
+  try {
+    const pdf = await htmlToPdf(buildInvoiceDoc(billing.issuer(), req.org, { ...inv, display_status: billing.displayStatus(inv) }));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${inv.number}.pdf"`);
+    res.send(pdf);
+  } catch (e) { res.status(500).json({ error: 'Gabim gjatë gjenerimit të PDF: ' + e.message }); }
+});
+
 module.exports = router;

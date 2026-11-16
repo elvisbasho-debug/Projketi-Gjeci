@@ -20,9 +20,13 @@ const { schemaFor } = require('./service-schema');
 let robots = {};
 try { robots = require('./robots'); } catch (e) { robots = {}; }
 
-const CONCURRENCY = 3;
+// Kufijtë e ekzekutimit paralel (si te VA): një studio e madhe nuk bllokon të tjerat
+const CONCURRENCY = Number(process.env.ROBOTS_CONCURRENCY || 6);          // gjithsej në server
+const PER_ORG = Number(process.env.ROBOTS_PER_ORG || 12);                // për studio
+const PER_USER = Number(process.env.ROBOTS_PER_USER || 3);               // për përdorues (run_by)
 let running = 0;
 let timer = null;
+const active = new Map(); // execId → { org, user }
 
 function log(execId, level, msg) {
   db.prepare('INSERT INTO execution_logs (execution_id, level, message) VALUES (?,?,?)').run(execId, level, msg);
@@ -121,13 +125,24 @@ async function processOne(execId) {
 
 function tick() {
   if (running >= CONCURRENCY) return;
-  const slots = CONCURRENCY - running;
-  // Kërkesat nga portali i klientit kanë përparësi (klienti pret para ekranit)
-  const pending = db.prepare("SELECT id FROM executions WHERE status='ne_radhe' ORDER BY (run_by LIKE 'klient:%') DESC, id LIMIT ?").all(slots);
+  let slots = CONCURRENCY - running;
+  const perOrg = new Map(), perUser = new Map();
+  for (const a of active.values()) { perOrg.set(a.org, (perOrg.get(a.org) || 0) + 1); perUser.set(a.user, (perUser.get(a.user) || 0) + 1); }
+  // Kërkesat nga portali i klientit kanë përparësi (klienti pret para ekranit); pastaj sipas radhës.
+  // Kalohen ato që do kapërcenin kufirin e studios ose të përdoruesit → radhët e tjera ecin.
+  const pending = db.prepare(`SELECT e.id, e.run_by, s.org_id FROM executions e JOIN subjects s ON s.id = e.subject_id
+    WHERE e.status='ne_radhe' ORDER BY (e.run_by LIKE 'klient:%') DESC, e.id LIMIT 500`).all();
   for (const p of pending) {
+    if (slots <= 0) break;
+    const org = p.org_id || 0, user = p.run_by || '';
+    if ((perOrg.get(org) || 0) >= PER_ORG) continue;
+    if (!user.startsWith('klient:') && (perUser.get(user) || 0) >= PER_USER) continue;
     // shëno menjëherë që të mos merret dy herë
-    db.prepare("UPDATE executions SET status='duke_riprovuar' WHERE id=? AND status='ne_radhe'").run(p.id);
-    processOne(p.id);
+    if (!db.prepare("UPDATE executions SET status='duke_riprovuar' WHERE id=? AND status='ne_radhe'").run(p.id).changes) continue;
+    perOrg.set(org, (perOrg.get(org) || 0) + 1); perUser.set(user, (perUser.get(user) || 0) + 1);
+    active.set(p.id, { org, user });
+    slots--;
+    processOne(p.id).finally(() => active.delete(p.id));
   }
 }
 

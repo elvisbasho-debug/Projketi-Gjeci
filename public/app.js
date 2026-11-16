@@ -1267,7 +1267,7 @@ async function viewPlatform(el) {
           <td>${esc(p.plan_name)}${o.max_subjects ? ' <small class="muted">(kufi i veçantë)</small>' : ''}</td>
           <td class="num"><b>${p.used}</b> / ${p.limit}${p.extra ? `<br><small class="muted">+${p.extra} shtesë</small>` : ''}<div class="qbar" style="margin-top:4px"><div class="qfill" style="width:${pct}%"></div></div></td>
           <td class="num"><b>${eur(p.monthly_total)}</b></td>
-          <td><span class="badge ${o.status === 'active' ? 'b-active' : 'b-suspended'}">${o.status === 'active' ? 'Aktive' : 'Pezulluar'}</span></td>
+          <td><span class="badge ${o.status === 'active' ? 'b-active' : 'b-suspended'}">${o.status === 'active' ? 'Aktive' : 'Pezulluar'}</span>${o.trial_ends && o.trial_ends >= new Date().toISOString().slice(0, 10) ? `<br><span class="badge b-sent" style="margin-top:4px">Provë deri ${esc(fmtDate(o.trial_ends))}</span>` : ''}</td>
           <td class="num nowrap"><button class="btn sm" data-enter="${o.id}">Hyr</button> <button class="btn ghost sm" data-edit="${o.id}">Ndrysho</button></td></tr>`; }).join('')}</tbody></table></div>
     </div>
     <div class="grid plat-grid">
@@ -1288,6 +1288,42 @@ async function viewPlatform(el) {
       </div>
     </div>`;
 
+  el.insertAdjacentHTML('beforeend', `
+    <div class="card" style="margin-top:18px" id="invCard">
+      <div class="card-head"><h3>Faturat e studiove</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="month" id="invPeriod" class="search" style="padding-left:12px;min-width:0">
+          <button class="btn" id="invGen">Lësho faturat e muajit</button><button class="btn ghost" id="issuerBtn">Të dhënat e lëshuesit</button></div></div>
+      <div id="invBody"><div class="empty">Duke ngarkuar…</div></div>
+    </div>`);
+  const prev = new Date(); prev.setDate(1); prev.setMonth(prev.getMonth() - 1);
+  $('#invPeriod').value = prev.toISOString().slice(0, 7);
+  const INV_ST = { e_papaguar: ['E papaguar', 'b-draft'], paguar: ['Paguar', 'b-paid'], anuluar: ['Anuluar', 'b-cancelled'], vonuar: ['E vonuar', 'b-overdue'] };
+  const loadInv = async () => {
+    const r = await api.get('/platform/invoices');
+    $('#invBody').innerHTML = `
+      <div class="inv-sum"><span>Paguar: <b>${eur(r.totals.paid)}</b></span><span>Pa paguar: <b>${eur(r.totals.unpaid)}</b></span><span class="${r.totals.overdue ? 'neg' : ''}">Të vonuara: <b>${eur(r.totals.overdue)}</b></span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Nr.</th><th>Studioja</th><th>Periudha</th><th class="num">Totali</th><th>Afati</th><th>Statusi</th><th></th></tr></thead>
+      <tbody>${r.invoices.length ? r.invoices.map(i => `<tr><td class="nowrap"><b>${esc(i.number)}</b></td><td>${esc(i.org_name)}</td><td>${esc(i.period)}</td>
+        <td class="num">${eur(i.total)}</td><td class="muted nowrap">${esc(fmtDate(i.due_date))}</td><td>${badge(INV_ST, i.display_status)}</td>
+        <td class="num nowrap"><button class="btn ghost sm" data-ipdf="${i.id}" data-num="${esc(i.number)}">PDF</button>
+          ${i.status === 'e_papaguar' ? `<button class="btn sm green" data-ist="${i.id}" data-v="paguar">Paguar</button> <button class="btn ghost sm" data-ist="${i.id}" data-v="anuluar">Anulo</button>` : i.status === 'paguar' ? `<button class="btn ghost sm" data-ist="${i.id}" data-v="e_papaguar">Kthe</button>` : ''}</td></tr>`).join('')
+        : '<tr><td colspan="7"><div class="empty">Ende pa fatura. Lëshoni faturat e muajit të kaluar.</div></td></tr>'}</tbody></table></div>`;
+    $$('[data-ipdf]').forEach(b => b.onclick = () => downloadFile('/platform/invoices/' + b.dataset.ipdf + '/pdf', b.dataset.num + '.pdf'));
+    $$('[data-ist]').forEach(b => b.onclick = async () => { await api.post('/platform/invoices/' + b.dataset.ist + '/status', { status: b.dataset.v }); toast('U përditësua'); loadInv(); });
+  };
+  $('#invGen').onclick = () => confirmBox(`Të lëshohen faturat për ${$('#invPeriod').value} për të gjitha studiot aktive (përveç atyre në provë)?`, async () => {
+    const r = await api.post('/platform/invoices/generate', { period: $('#invPeriod').value }); toast(`U lëshuan ${r.created} fatura${r.skipped ? ` · ${r.skipped} u kapërcyen` : ''}`); loadInv(); });
+  $('#issuerBtn').onclick = async () => {
+    const s = await api.get('/platform/issuer');
+    modal('Të dhënat e lëshuesit të faturave', `
+      <div class="row2"><div class="field"><label>Emri i kompanisë</label><input id="iName" value="${esc(s.name)}"></div><div class="field"><label>NIPT</label><input id="iNipt" value="${esc(s.nipt)}"></div></div>
+      <div class="field"><label>Adresa</label><input id="iAddr" value="${esc(s.address)}"></div>
+      <div class="field"><label>Email</label><input id="iEmail" value="${esc(s.email)}"></div>
+      <div class="row2"><div class="field"><label>Banka</label><input id="iBank" value="${esc(s.bank)}"></div><div class="field"><label>IBAN</label><input id="iIban" value="${esc(s.iban)}"></div></div>`, {
+      onSave: async bg => { await api.put('/platform/issuer', { name: $('#iName', bg).value, nipt: $('#iNipt', bg).value, address: $('#iAddr', bg).value, email: $('#iEmail', bg).value, bank: $('#iBank', bg).value, iban: $('#iIban', bg).value }); toast('U ruajt'); } });
+  };
+  loadInv();
+
   $$('[data-enter]', el).forEach(b => b.onclick = () => switchOrg(b.dataset.enter));
   const orgForm = o => {
     const isNew = !o; o = o || { plan_code: 'start', status: 'active' };
@@ -1301,12 +1337,13 @@ async function viewPlatform(el) {
         <div class="field"><label>Mbi kufirin</label><label class="check" style="margin-top:8px"><input type="checkbox" id="oOver" ${o.allow_overage ? 'checked' : ''}> Lejo pa bllokuar</label></div></div>
       ${isNew ? `<h4 style="margin:6px 0 10px">Administratori i studios</h4>
         <div class="row2"><div class="field"><label>Emri *</label><input id="aName"></div><div class="field"><label>Email (për hyrje) *</label><input id="aEmail" type="email"></div></div>
-        <div class="field"><label>Fjalëkalimi fillestar * (min. 8)</label><input id="aPass" type="text" autocomplete="off"></div>`
+        <div class="field"><label>Fjalëkalimi fillestar * (min. 8)</label><input id="aPass" type="text" autocomplete="off"></div>
+        <label class="check"><input type="checkbox" id="oTrial" checked> Provë falas 14 ditë (pa faturë deri në mbarim)</label>`
         : `<div class="field"><label>Statusi</label><select id="oStatus"><option value="active" ${o.status === 'active' ? 'selected' : ''}>Aktive</option><option value="suspended" ${o.status !== 'active' ? 'selected' : ''}>Pezulluar (s'mund të hyjë askush i studios)</option></select></div>`}`, {
       saveLabel: isNew ? 'Krijo studion' : 'Ruaj', onSave: async bg => {
         const body = { name: $('#oName', bg).value.trim(), nipt: $('#oNipt', bg).value.trim(), email: $('#oEmail', bg).value.trim(), phone: $('#oPhone', bg).value.trim(),
           plan_code: $('#oPlan', bg).value, max_subjects: $('#oMax', bg).value || null, allow_overage: $('#oOver', bg).checked };
-        if (isNew) Object.assign(body, { admin_name: $('#aName', bg).value.trim(), admin_email: $('#aEmail', bg).value.trim(), admin_password: $('#aPass', bg).value });
+        if (isNew) Object.assign(body, { admin_name: $('#aName', bg).value.trim(), admin_email: $('#aEmail', bg).value.trim(), admin_password: $('#aPass', bg).value, trial: $('#oTrial', bg).checked });
         else body.status = $('#oStatus', bg).value;
         if (isNew) await api.post('/platform/orgs', body); else await api.put('/platform/orgs/' + o.id, body);
         toast(isNew ? 'Studioja u krijua' : 'U ruajt'); await loadMe(); bindOrgChip(); viewPlatform(el);
@@ -1376,6 +1413,16 @@ async function viewSettings(el) {
         <div class="kv"><span>Totali i këtij muaji</span><b>${eur(p.monthly_total)}</b></div>
         <p class="muted small" style="margin:12px 0 0">${p.overage ? 'Mund të shtoni biznese mbi kufirin; faturohen veçmas.' : 'Kur arrini kufirin, për biznese të reja duhet një plan më i madh. Kontaktoni mbështetjen.'}</p>
       </div></div>`);
+  const invs = await api.get('/settings/invoices').catch(() => []);
+  const IST = { e_papaguar: ['E papaguar', 'b-draft'], paguar: ['Paguar', 'b-paid'], vonuar: ['E vonuar', 'b-overdue'] };
+  el.insertAdjacentHTML('beforeend', `
+    <div class="card" style="max-width:640px;margin-top:18px"><div class="card-head"><h3>Faturat</h3></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Nr.</th><th>Periudha</th><th class="num">Totali</th><th>Afati</th><th>Statusi</th><th></th></tr></thead>
+      <tbody>${invs.length ? invs.map(i => `<tr><td><b>${esc(i.number)}</b></td><td>${esc(i.period)}</td><td class="num">${eur(i.total)}</td>
+        <td class="muted">${esc(fmtDate(i.due_date))}</td><td>${badge(IST, i.display_status)}</td>
+        <td class="num"><button class="btn ghost sm" data-spdf="${i.id}" data-num="${esc(i.number)}">PDF</button></td></tr>`).join('')
+        : '<tr><td colspan="6"><div class="empty" style="padding:24px">Ende pa fatura.</div></td></tr>'}</tbody></table></div></div>`);
+  $$('[data-spdf]', el).forEach(b => b.onclick = () => downloadFile('/settings/invoices/' + b.dataset.spdf + '/pdf', b.dataset.num + '.pdf'));
 }
 
 /* ============ Profile ============ */

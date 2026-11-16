@@ -437,3 +437,5 @@ th { color: #4c5a75; }.tabs { overflow-y: hidden; scrollbar-width: none; } .tabs
 .plat-grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; margin-top: 18px; }
 .plat-grid > .card, .grid > .card { min-width: 0; }
 @media (max-width: 1000px) { .plat-grid { grid-template-columns: minmax(0, 1fr); } }
+.inv-sum { display: flex; gap: 22px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.inv-sum b { color: var(--text); }
