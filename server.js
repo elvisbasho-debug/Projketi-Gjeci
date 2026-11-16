@@ -40,6 +40,9 @@ app.use('/api/reports', requireAuth, require('./src/routes/reports'));
 app.use('/api/settings', requireAuth, require('./src/routes/settings'));
 app.use('/api/client', requireAuth, require('./src/routes/client'));   // portali i klientit (TVSH në kohë reale)
 
+// C@ts i simuluar për testimin e konektorit të TVSH-së (jo në prodhim)
+if (process.env.NODE_ENV !== 'production') app.use('/mock-cats', require('./src/mock-cats'));
+
 // Frontend statik
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {

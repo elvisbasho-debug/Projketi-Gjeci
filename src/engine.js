@@ -54,18 +54,16 @@ async function processOne(execId) {
   service.__action = ex.action || null;
   log(execId, 'info', `Nisi roboti "${service.name}"${act ? ' — ' + act.label : ''} për subjektin "${subject ? subject.name : '?'}".`);
 
-  if (subject && !subject.ealbania_pass) {
-    log(execId, 'warn', 'Subjekti nuk ka fjalëkalim e-Albania të ruajtur — përdoret modaliteti i simuluar.');
-  }
+  const connector = robots[service.code];
+  if (!connector) log(execId, 'info', 'Modalitet i simuluar: konektori real për këtë shërbim nuk është aktiv.');
 
   try {
     // Zgjidh konektorin real nëse ekziston, përndryshe simulim.
-    const connector = robots[service.code];
     let out;
     if (connector && typeof connector.run === 'function') {
-      // Konektori real merr kredencialet e dekriptuara.
-      const creds = subject ? { user: subject.ealbania_user, pass: decrypt(subject.ealbania_pass) } : {};
-      out = await connector.run(subject, creds, service, ex.action || null);
+      // Konektori real merr kredencialet e dekriptuara dhe shkruan hapat e vet në regjistër.
+      const creds = subject ? { user: subject.ealbania_user || subject.nipt, pass: subject.ealbania_pass ? decrypt(subject.ealbania_pass) : null } : {};
+      out = await connector.run(subject, creds, service, ex.action || null, { log: (level, _code, msg) => log(execId, level, msg) });
     } else {
       out = await runRobotSimulated(service, subject);
     }
@@ -93,6 +91,12 @@ async function processOne(execId) {
       const period = (prev && prev.period_from ? prev.period_from : new Date().toISOString()).slice(0, 7);
       db.prepare('INSERT INTO record_history (service_id, subject_id, period, action, status, result, data) VALUES (?,?,?,?,?,?,?)')
         .run(ex.service_id, ex.subject_id, period, ex.action || null, recStatus, out.result || null, JSON.stringify(out.data || {}));
+      // Historik shtesë nga portali (p.sh. TVSH e paguar sipas periudhave) → zëvendëson të njëjtën periudhë
+      if (Array.isArray(out.history) && out.history.length) {
+        const del = db.prepare("DELETE FROM record_history WHERE service_id=? AND subject_id=? AND period=? AND action='portal_ledger'");
+        const ins = db.prepare("INSERT INTO record_history (service_id, subject_id, period, action, status, result, data) VALUES (?,?,?,'portal_ledger','kryer',?,?)");
+        db.transaction(() => out.history.forEach(h => { del.run(ex.service_id, ex.subject_id, h.period); ins.run(ex.service_id, ex.subject_id, h.period, 'Nga libri i portalit', JSON.stringify(h.data || {})); }))();
+      }
     }
     // Kërkesat e klientit të lidhura me këtë ekzekutim
     db.prepare("UPDATE client_requests SET status=?, result=?, data=?, finished_at=datetime('now') WHERE execution_id=?")

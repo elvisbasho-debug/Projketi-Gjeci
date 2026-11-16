@@ -28,6 +28,7 @@ const SCHEMA = {
       { key: 'kredi', label: 'Kredi', type: 'money' },
       { key: 'tvsh_mujore', label: 'TVSH mujore', type: 'money' },
       { key: 'totali', label: 'Totali', type: 'money' },
+      { key: 'tvsh_paguar', label: 'TVSH e paguar', type: 'money' },
     ],
     actions: [
       { key: 'deklaro', label: 'Deklaro TVSH-në' },

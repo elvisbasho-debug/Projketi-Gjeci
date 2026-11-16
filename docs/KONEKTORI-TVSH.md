@@ -24,6 +24,28 @@ ndjekur nga regjistri i robotit. Këtu shënohet **vetëm rrjedha**, asnjë e dh
    Finbot e ka gati regjistrin për rekord dhe do t'i shtohen kodet e ngjarjeve.
 5. **Kufijtë paralelë:** 3 për përdorues dhe 12 për studio. Finbot sot ka 3 globalisht.
 
+## Çfarë është ndërtuar në Finbot
+- `src/robots/tvsh_deklarim.js`: konektori real. Hyrje → Pasqyra mujore → libri TaxTypeId=7 për 3 vite.
+  Hapat shkruhen në regjistrin e rekordit dhe historiku i TVSH-së së paguar ruhet për Statistikat.
+- `src/robots/cats/session.js`: sesion C@ts për çdo subjekt (10 min), ripërdoret dhe rihyn automatikisht kur skadon.
+- `src/robots/cats/config.js`: adresat. **Hyrja është e konfirmuar** te faqja publike:
+  `POST /cats_public/Account/Authenticate` me `UserName`, `Password` dhe `AcceptTermsAndConditions`.
+- **"Deklaro TVSH-në" është i bllokuar** në modalitetin real, përveç kur vendoset `ROBOTS_ALLOW_DECLARE=1`.
+- `src/mock-cats.js`: C@ts i simuluar lokal (vetëm jashtë prodhimit) për testim nga fillimi në fund.
+
+### Nisja
+```bash
+# test me C@ts të simuluar
+ROBOTS_REAL=tvsh_deklarim CATS_BASE_URL=http://localhost:3000/mock-cats npm start
+# portali real (pasi të plotësohen dy adresat më poshtë)
+ROBOTS_REAL=tvsh_deklarim CATS_MONTHLY_PATH="..." CATS_LEDGER_PATH="..." npm start
+```
+Shabllonet e adresave pranojnë `{nipt}`, `{taxTypeId}`, `{year}` dhe `{period}` (MM-YYYY).
+
+### Kujdes
+- Hyrja me `AcceptTermsAndConditions` pranon kushtet e portalit në emër të subjektit. Duhet autorizimi me shkrim i klientit.
+- Kredencialet: përdoruesi merret nga "Përdoruesi e-Albania" i subjektit (ose NIPT-i), fjalëkalimi është i enkriptuar.
+
 ## Hapi tjetër (kërkon pronarin e llogarisë)
 Për të shkruar konektorin duhen adresat dhe formati i saktë i thirrjeve në C@ts / Self-Care.
 Mënyra e sigurt:

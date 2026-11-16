@@ -89,7 +89,7 @@
     'Sistemi': 'System', 'Ndalo të gjitha': 'Stop all', 'Të gjitha shërbimet': 'All services', 'Të gjitha statuset': 'All statuses',
     'Radha e ekzekutimeve': 'Run queue', 'Mediana pritjes': 'Median wait', 'Mediana procesim': 'Median processing',
     'Pronar': 'Owner', 'Administrator': 'Administrator', 'Kontabilist': 'Accountant', 'Vëzhgues': 'Viewer',
-    'Kërko': 'Search', 'NIPT': 'Tax ID', 'Kërko subjekt, NIPT, status ose vlerë…': 'Search subject, tax ID, status or value…', 'Rekordi': 'Record', 'Kërko shërbime…': 'Search services…', 'Kuota rinovohet më': 'Quota renews on',
+    'Kërko': 'Search', 'TVSH e paguar': 'VAT paid','NIPT': 'Tax ID', 'Kërko subjekt, NIPT, status ose vlerë…': 'Search subject, tax ID, status or value…', 'Rekordi': 'Record', 'Kërko shërbime…': 'Search services…', 'Kuota rinovohet më': 'Quota renews on',
     'Subjekt, NIPT ose shërbim…': 'Subject, tax ID or service…', 'Asnjë rezultat': 'No results', 'Shërbim': 'Service',
     'Subjekt, NIPT, shërbim, përdorues ose rezultat': 'Subject, tax ID, service, user or result',
     // Portali i klientit

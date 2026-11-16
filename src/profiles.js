@@ -20,7 +20,7 @@ const PROFILES = {
     if (action === 'deklaro') return { status: 'deklaruar', result: 'TVSH-ja u deklarua', data: { status_deklarim: 'Deklaruar' } };
     if (action === 'kontrollo') { const d = chance(0.8); return { status: d ? 'deklaruar' : 'kryer', result: d ? 'Deklarata është e pranuar' : 'Nuk është deklaruar ende', data: { status_deklarim: d ? 'Deklaruar' : 'Pa deklaruar' } }; }
     const kredi = rnd(0, 800000), tvsh = rnd(-300000, 100000);
-    const out = { status: 'kryer', result: 'Informacioni i TVSH-së u mblodh', data: { status_info: 'Kryer', kredi, tvsh_mujore: tvsh, totali: tvsh - Math.round(kredi / 4) } };
+    const out = { status: 'kryer', result: 'Informacioni i TVSH-së u mblodh', data: { status_info: 'Kryer', kredi, tvsh_mujore: tvsh, totali: tvsh - Math.round(kredi / 4), tvsh_paguar: rnd(0, 250000) } };
     if (!action) { out.status = 'deklaruar'; out.result = 'Deklaruar'; out.data.status_deklarim = 'Deklaruar'; }
     return out;
   },
