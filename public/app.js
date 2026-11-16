@@ -161,7 +161,16 @@ function renderApp() {
         </div>
         <div class="content" id="view"></div>
       </div>
+      <nav class="bottom-nav">
+        <a href="#/" data-bn="">${I.dash}<span>Kreu</span></a>
+        <a href="#/services" data-bn="services">${I.services}<span>Shërbimet</span></a>
+        <a href="#/va" data-bn="va" class="bn-ai">${I.va}<span>AI</span></a>
+        <button id="bnSearch">${'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'}<span>Kërko</span></button>
+        <button id="bnMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg><span>Menu</span></button>
+      </nav>
     </div>`;
+  $('#bnMenu').onclick = () => $('#sidebar').classList.toggle('open');
+  $('#bnSearch').onclick = globalSearch;
   const nav = $('#nav');
   NAV.forEach(n => {
     if (!can(n.role)) return;
@@ -194,10 +203,31 @@ function route() {
   const navItem = NAV.find(n => n.key === key);
   if (navItem && !can(navItem.role)) { $('#view').innerHTML = '<div class="empty">Nuk keni akses.</div>'; return; }
   $$('.nav-item[data-key]').forEach(b => b.classList.toggle('active', b.dataset.key === (NAV_ALIAS[key] || key)));
+  $$('.bottom-nav [data-bn]').forEach(b => b.classList.toggle('active', b.dataset.bn === (NAV_ALIAS[key] || key)));
+  if ($('#sidebar')) $('#sidebar').classList.remove('open');
   const titles = { '': 'Paneli', services: 'Shërbimet', service: 'Shërbimi', va: 'Pyet VA', subjects: 'Subjektet', subject: 'Subjekti', automation: 'Automatizimi', notifications: 'Njoftimet', support: 'Mbështetje', users: 'Përdoruesit', audit: 'Regjistri i veprimeve', settings: 'Cilësimet', profile: 'Profili im' };
   $('#pageTitle').textContent = titles[key] || 'Finbot';
   $('#view').innerHTML = '<div class="empty">Duke ngarkuar…</div>';
   fn($('#view'), parts[1], parts[2], parts[3]);
+}
+
+/* ---- Kërkimi global (subjekte + shërbime) ---- */
+async function globalSearch() {
+  const services = await api.get('/services').catch(() => []);
+  const m = modal('Kërko', `<input class="search" id="gq" placeholder="Subjekt, NIPT ose shërbim…" style="width:100%" autofocus><div id="gres" class="gres"></div>`);
+  const box = $('#gres', m.bg), inp = $('#gq', m.bg);
+  let t;
+  const run = async () => {
+    const q = inp.value.trim();
+    if (!q) { box.innerHTML = ''; return; }
+    const subs = await api.get('/subjects?q=' + encodeURIComponent(q)).catch(() => []);
+    const sv = services.filter(s => s.name.toLowerCase().includes(q.toLowerCase()));
+    box.innerHTML = [...subs.slice(0, 8).map(s => `<a href="#/subject/${s.id}"><b>${esc(s.name)}</b><span class="muted">${esc(s.nipt || '')}</span></a>`),
+      ...sv.map(s => `<a href="#/service/${s.id}"><b>${esc(s.name)}</b><span class="muted">Shërbim</span></a>`)].join('') || '<div class="muted small" style="padding:12px 4px">Asnjë rezultat</div>';
+    $$('a', box).forEach(a => a.onclick = () => m.close());
+  };
+  inp.oninput = () => { clearTimeout(t); t = setTimeout(run, 200); };
+  setTimeout(() => inp.focus(), 50);
 }
 
 /* ============ Modal ============ */
@@ -249,11 +279,25 @@ async function viewDashboard(el) {
       <div class="card">
         <div class="card-head"><h3>Rekordet e fundit</h3></div>
         <div class="card-body" style="padding:0"><table>
-          <thead><tr><th>Subjekti</th><th>Shërbimi</th><th>Status</th></tr></thead>
-          <tbody>${d.recent.length ? d.recent.map(r => `<tr><td><b>${esc(r.subject_name)}</b></td><td class="muted">${esc(r.service_name)}</td><td>${badge(REC_ST, r.status)}</td></tr>`).join('') : '<tr><td colspan="3"><div class="empty">Ende pa rekorde</div></td></tr>'}</tbody>
+          <thead><tr><th>Subjekti</th><th>Shërbimi</th><th>Status</th><th></th></tr></thead>
+          <tbody>${d.recent.length ? d.recent.map(r => `<tr><td><b>${esc(r.subject_name)}</b></td><td class="muted">${esc(r.service_name)}</td><td>${badge(REC_ST, r.status)}</td>
+            <td class="num nowrap"><a class="btn ghost sm" href="#/service/${r.service_id}">Shërbimi</a> <a class="btn ghost sm" href="#/record/${r.service_id}/${r.subject_id}">Rekordi</a></td></tr>`).join('') : '<tr><td colspan="4"><div class="empty">Ende pa rekorde</div></td></tr>'}</tbody>
         </table></div>
       </div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <div class="card-head"><h3>Shërbimet</h3><input class="search" id="dq" placeholder="Kërko shërbime…"></div>
+      <div class="card-body" style="padding:0"><table>
+        <thead><tr><th>Shërbimi</th><th class="num">Përdorimi</th><th>Kuota rinovohet më</th></tr></thead>
+        <tbody id="dsvc"></tbody></table></div>
     </div>`;
+  const svcs = await api.get('/services');
+  const paintSvc = q => { q = (q || '').toLowerCase();
+    const rows = svcs.filter(s => s.name.toLowerCase().includes(q));
+    $('#dsvc').innerHTML = rows.map(s => `<tr class="clickable" data-s="${s.id}"><td><b>${esc(s.name)}</b></td><td class="num">${s.used} / ${s.max_limit}</td><td class="muted">${esc(fmtDate(s.renews_at) || '—')}</td></tr>`).join('')
+      || '<tr><td colspan="3"><div class="empty" style="padding:20px">Asnjë shërbim</div></td></tr>';
+    $$('#dsvc [data-s]').forEach(r => r.onclick = () => location.hash = '#/service/' + r.dataset.s); };
+  paintSvc(''); $('#dq').oninput = e => paintSvc(e.target.value);
 }
 
 /* ============ Services ============ */
@@ -427,7 +471,7 @@ async function viewServiceDetail(el, id) {
           <span class="muted" id="count"></span>
         </div>
         <div class="tbl-wrap"><table class="svc-table">
-          <thead><tr>${head.map(([l, k, n]) => `<th class="${k ? 'sortable' : ''} ${n ? 'num' : ''}" ${k ? `data-sort="${k}"` : ''}>${esc(l)}${k && st.sort === k ? (st.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+          <thead><tr>${head.map(([l, k, n]) => `<th class="${k ? 'sortable' : ''} ${n ? 'num' : ''}" ${k ? `data-sort="${k}"` : ''}><span>${esc(l)}</span>${k && st.sort === k ? `<span class="sort-ar">${st.dir > 0 ? ' ▲' : ' ▼'}</span>` : ''}</th>`).join('')}</tr></thead>
           <tbody id="rows"></tbody></table></div>
       </div>`;
     paintRows();
@@ -577,6 +621,7 @@ async function viewRecord(el, serviceId, subjectId, pane) {
         <div><div class="eyebrow">${esc(svc.name)}</div><h1>${esc(rec.subject_name)}</h1>
           <div class="muted small">NIPT ${esc(rec.nipt || '—')} · <span class="badge ${rec.subject_status === 'active' ? 'b-active' : 'b-cancelled'}">${rec.subject_status === 'active' ? 'Aktiv' : 'Joaktiv'}</span></div></div>
         <div class="rec-head-actions">
+          <a class="btn ghost" href="#/va/${esc(subjectId)}">${I.va}<span>Pyet VA</span></a>
           <button class="btn ghost" id="rRefresh">${ICO.refresh}<span>Rifresko</span></button>
           ${acc ? `<button class="btn danger" id="rStop" ${d.active ? '' : 'disabled'}>${ICO.stop}<span>Ndalo</span></button>` : ''}
         </div>
@@ -978,7 +1023,9 @@ async function viewAutomation(el) {
     const st = await api.get('/executions/stats');
     const svcFilter = $('#fsvc') ? $('#fsvc').value : '';
     const stFilter = $('#fst') ? $('#fst').value : '';
-    const qs = []; if (svcFilter) qs.push('service_id=' + svcFilter); if (stFilter) qs.push('status=' + stFilter);
+    const qFilter = $('#fq') ? $('#fq').value : '';
+    const hadFocus = document.activeElement && document.activeElement.id === 'fq';
+    const qs = []; if (svcFilter) qs.push('service_id=' + svcFilter); if (stFilter) qs.push('status=' + stFilter); if (qFilter) qs.push('q=' + encodeURIComponent(qFilter));
     const list = await api.get('/executions' + (qs.length ? '?' + qs.join('&') : ''));
     const services = window.__SVC || (window.__SVC = await api.get('/services'));
     el.innerHTML = `
@@ -994,7 +1041,8 @@ async function viewAutomation(el) {
       </div>
       <div class="card">
         <div class="card-head"><h3>Radha e ekzekutimeve</h3>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input class="search" id="fq" placeholder="Subjekt, NIPT, shërbim, përdorues ose rezultat" value="${esc(qFilter)}">
             <select class="search" id="fsvc" style="padding-left:12px;min-width:160px;background:none"><option value="">Të gjitha shërbimet</option>${services.map(s => `<option value="${s.id}" ${s.id==svcFilter?'selected':''}>${esc(s.name)}</option>`).join('')}</select>
             <select class="search" id="fst" style="padding-left:12px;min-width:150px;background:none"><option value="">Të gjitha statuset</option>${Object.entries(EXEC_ST).map(([k,v])=>`<option value="${k}" ${k==stFilter?'selected':''}>${v[0]}</option>`).join('')}</select>
           </div></div>
@@ -1012,6 +1060,8 @@ async function viewAutomation(el) {
         </table></div></div>`;
     $('#refresh').onclick = render;
     $('#fsvc').onchange = render; $('#fst').onchange = render;
+    let qt; $('#fq').oninput = () => { clearTimeout(qt); qt = setTimeout(render, 300); };
+    if (hadFocus) { const i = $('#fq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
     if ($('#stopAll')) $('#stopAll').onclick = () => confirmBox('Të ndalohen të gjitha në radhë?', async () => { const r = await api.post('/executions/stop-all'); toast(`U ndaluan ${r.stopped}`); render(); }, { danger: true });
     $$('[data-stop]', el).forEach(b => b.onclick = async () => { await api.post('/executions/' + b.dataset.stop + '/stop'); toast('U ndalua'); render(); });
     $$('[data-log]', el).forEach(b => b.onclick = () => showLogs(b.dataset.log));
@@ -1028,37 +1078,54 @@ async function showLogs(id) {
 }
 
 /* ============ Pyet VA ============ */
-async function viewVA(el) {
-  const d = await api.get('/va/messages');
-  el.innerHTML = `
-    <div class="card va-card">
-      <div class="card-head"><div style="display:flex;align-items:center;gap:10px">${I.logo}<div><h3 style="margin:0">Pyet VA</h3><div class="muted" style="font-size:12px">Shërbimet e tua, në një bisedë</div></div></div>
-        <span class="badge b-admin">${d.credits} kredite</span></div>
-      <div class="va-msgs" id="msgs">${d.messages.length ? d.messages.map(m => vaBubble(m.role, m.body)).join('') : `
-        <div class="va-empty">
-          <div class="va-spark">${I.va}</div><h3>Si po ecën puna sot?</h3>
-          <p class="muted">Pyet për gjendjen e shërbimeve, subjekteve dhe ekzekutimeve.</p>
-          <div class="va-suggest">
-            <button class="va-chip">Cilat ekzekutime kanë dështuar dhe pse?</button>
-            <button class="va-chip">Si është përdorimi i kuotave?</button>
-            <button class="va-chip">Përmbledhje e TVSH-së</button>
-          </div></div>`}</div>
-      <div class="va-input"><input id="vaq" placeholder="Shkruaj pyetjen…"><button class="btn" id="vasend">Dërgo</button></div>
-      <div class="muted" style="padding:0 16px 12px;font-size:12px">VA mund të gabojë. Verifiko shifrat.</div>
-    </div>`;
-  const msgs = $('#msgs');
-  const send = async q => {
-    if (!q.trim()) return;
-    if (msgs.querySelector('.va-empty')) msgs.innerHTML = '';
-    msgs.insertAdjacentHTML('beforeend', vaBubble('user', q)); msgs.scrollTop = msgs.scrollHeight;
-    $('#vaq').value = ''; const typing = document.createElement('div'); typing.innerHTML = vaBubble('assistant', '…'); msgs.appendChild(typing); msgs.scrollTop = msgs.scrollHeight;
-    try { const r = await api.post('/va/ask', { question: q }); typing.remove(); msgs.insertAdjacentHTML('beforeend', vaBubble('assistant', r.answer)); }
-    catch (e) { typing.remove(); toast(e.message, true); }
-    msgs.scrollTop = msgs.scrollHeight;
+async function viewVA(el, subjectId) {
+  const subjects = await api.get('/subjects').catch(() => []);
+  let sid = subjectId && subjects.find(s => String(s.id) === String(subjectId)) ? String(subjectId) : '';
+  const QUICK = { 'Përmbledhje': 'Më jep një përmbledhje të gjendjes', 'Dështimet': 'Cilat ekzekutime kanë dështuar dhe pse?', 'Përdorimi': 'Si është përdorimi i kuotave?' };
+  const SUGGEST_ALL = ['Cilat ekzekutime kanë dështuar dhe pse?', 'Si është përdorimi i kuotave?', 'Përmbledhje e TVSH-së për të gjitha subjektet'];
+  const SUGGEST_SUB = ['Si ka ecur TVSH-ja e paguar këto tre vite?', 'Krahaso muajt dhe shpjego ndryshimet më të mëdha', 'A ka shërbime të dështuara për këtë subjekt?'];
+
+  const paint = async () => {
+    const d = await api.get('/va/messages' + (sid ? '?subject_id=' + sid : ''));
+    const subj = subjects.find(s => String(s.id) === sid);
+    el.innerHTML = `
+      <div class="card va-card">
+        <div class="card-head va-head">
+          <div style="display:flex;align-items:center;gap:10px">${I.logo}<div><h3 style="margin:0">Pyet VA</h3>
+            <div class="muted" style="font-size:12px">${subj ? 'Analizë për ' + esc(subj.name) : 'Shërbimet e tua, në një bisedë'}${d.ai ? ' · me AI (Claude)' : ''}</div></div></div>
+          <div class="va-tools">
+            <select id="vaSub" title="Analizo subjektin"><option value="">Të gjitha subjektet</option>${subjects.map(s => `<option value="${s.id}" ${String(s.id) === sid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+            <button class="btn ghost sm" id="vaNew">Bisedë e re</button>
+            <span class="badge b-admin">${d.credits} kredite</span>
+          </div></div>
+        <div class="va-quick">${Object.keys(QUICK).map(k => `<button class="chip" data-q="${esc(QUICK[k])}">${k}</button>`).join('')}</div>
+        <div class="va-msgs" id="msgs">${d.messages.length ? d.messages.map(m => vaBubble(m.role, m.body)).join('') : `
+          <div class="va-empty">
+            <div class="va-spark">${I.va}</div><h3>${subj ? esc(subj.name) : 'Si po ecën puna sot?'}</h3>
+            <p class="muted">${subj ? 'Pyet për TVSH-në, historikun, dështimet dhe vlerat e këtij subjekti.' : 'Pa zgjedhur subjekt, biseda përfshin të gjitha shërbimet e studios.'}</p>
+            <div class="va-suggest">${(subj ? SUGGEST_SUB : SUGGEST_ALL).map(q => `<button class="va-chip">${esc(q)}</button>`).join('')}</div></div>`}</div>
+        <div class="va-input"><input id="vaq" placeholder="Shkruaj pyetjen…"><button class="btn" id="vasend">Dërgo</button></div>
+        <div class="muted" style="padding:0 16px 12px;font-size:12px">VA mund të gabojë. Verifiko shifrat.</div>
+      </div>`;
+    const msgs = $('#msgs'); msgs.scrollTop = msgs.scrollHeight;
+    const send = async q => {
+      if (!q.trim()) return;
+      if (msgs.querySelector('.va-empty')) msgs.innerHTML = '';
+      msgs.insertAdjacentHTML('beforeend', vaBubble('user', q)); msgs.scrollTop = msgs.scrollHeight;
+      $('#vaq').value = ''; $('#vasend').disabled = true;
+      const typing = document.createElement('div'); typing.innerHTML = vaBubble('assistant', '…'); msgs.appendChild(typing); msgs.scrollTop = msgs.scrollHeight;
+      try { const r = await api.post('/va/ask', { question: q, subject_id: sid || null }); typing.remove(); msgs.insertAdjacentHTML('beforeend', vaBubble('assistant', r.answer)); }
+      catch (e) { typing.remove(); toast(e.message, true); }
+      $('#vasend').disabled = false; msgs.scrollTop = msgs.scrollHeight;
+    };
+    $('#vasend').onclick = () => send($('#vaq').value);
+    $('#vaq').onkeydown = e => { if (e.key === 'Enter') send($('#vaq').value); };
+    $$('.va-chip', el).forEach(c => c.onclick = () => send(c.textContent));
+    $$('.va-quick .chip', el).forEach(c => c.onclick = () => send(c.dataset.q));
+    $('#vaSub').onchange = e => { location.hash = '#/va' + (e.target.value ? '/' + e.target.value : ''); };
+    $('#vaNew').onclick = async () => { await api.del('/va/messages' + (sid ? '?subject_id=' + sid : '')); paint(); };
   };
-  $('#vasend').onclick = () => send($('#vaq').value);
-  $('#vaq').onkeydown = e => { if (e.key === 'Enter') send($('#vaq').value); };
-  $$('.va-chip', el).forEach(c => c.onclick = () => send(c.textContent));
+  await paint();
 }
 function vaBubble(role, body) {
   return `<div class="va-row ${role}"><div class="va-bubble">${esc(body).replace(/\n/g, '<br>')}</div></div>`;
@@ -1180,6 +1247,10 @@ function viewProfile(el) {
         <div class="field"><label>Email</label><input value="${esc(ME.email)}" disabled></div>
         <div class="field"><label>Roli</label><input value="${roleLabel(ME.role)}" disabled></div>
         <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+        <h3 style="font-size:15px;margin:0 0 6px">Preferencat</h3>
+        <div class="pref-row"><span>Tema</span><div class="seg" id="prefTheme">${[['light', 'E ndriçuar'], ['dark', 'E errët'], ['system', 'Sistemi']].map(([k, l]) => `<button data-v="${k}" class="${window.FB_PREFS && FB_PREFS.theme === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="pref-row"><span>Gjuha</span><div class="seg" id="prefLang">${[['sq', 'Shqip'], ['en', 'English']].map(([k, l]) => `<button data-v="${k}" class="${window.FB_PREFS && FB_PREFS.lang === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
         <h3 style="font-size:15px;margin:0 0 14px">Ndrysho fjalëkalimin</h3>
         <div class="field"><label>Fjalëkalimi aktual</label><input id="pw_cur" type="password"></div>
         <div class="field"><label>Fjalëkalimi i ri</label><input id="pw_new" type="password"></div>
@@ -1189,6 +1260,8 @@ function viewProfile(el) {
     try { await api.post('/auth/change-password', { current: $('#pw_cur').value, next: $('#pw_new').value }); toast('Fjalëkalimi u ndryshua'); $('#pw_cur').value = ''; $('#pw_new').value = ''; }
     catch (e) { toast(e.message, true); }
   };
+  $$('#prefTheme button').forEach(b => b.onclick = () => { FB_PREFS.setTheme(b.dataset.v); $$('#prefTheme button').forEach(x => x.classList.toggle('on', x === b)); });
+  $$('#prefLang button').forEach(b => b.onclick = () => { if (FB_PREFS.lang !== b.dataset.v) FB_PREFS.setLang(b.dataset.v); });
 }
 
 boot();

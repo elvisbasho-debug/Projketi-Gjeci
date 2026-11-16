@@ -142,7 +142,7 @@ tbody tr:hover { background: var(--surface-2); }
 .field input, .field select, .field textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text);
 }
-.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--primary); background: #fff; }
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--primary); background: var(--surface); }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 
@@ -208,7 +208,7 @@ tbody tr:hover { background: var(--surface-2); }
 .va-spark svg { width: 26px; height: 26px; }
 .va-suggest { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
 .va-chip { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); text-align: left; color: var(--text); font-size: 13px; }
-.va-chip:hover { border-color: var(--primary); background: #fff; }
+.va-chip:hover { border-color: var(--primary); background: var(--surface); }
 .va-row { display: flex; }
 .va-row.user { justify-content: flex-end; }
 .va-bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; }
@@ -216,7 +216,7 @@ tbody tr:hover { background: var(--surface-2); }
 .va-row.assistant .va-bubble { background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 3px; white-space: pre-wrap; }
 .va-input { display: flex; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--border); }
 .va-input input { flex: 1; padding: 11px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
-.va-input input:focus { outline: none; border-color: var(--primary); background: #fff; }
+.va-input input:focus { outline: none; border-color: var(--primary); background: var(--surface); }
 
 /* ===== Log-et & bileta ===== */
 .logbox { background: var(--navy-900); border-radius: 10px; padding: 14px; max-height: 360px; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
@@ -376,3 +376,53 @@ a.btn { text-decoration: none; }
 .page-head h1, .rec-head h1 { color: var(--navy-800); }
 .btn.on { border-color: var(--yellow); background: var(--yellow-light); color: var(--navy-800); }
 th { color: #4c5a75; }.tabs { overflow-y: hidden; scrollbar-width: none; } .tabs::-webkit-scrollbar { display: none; }
+/* ===== Pyet VA: zgjedhja e subjektit ===== */
+.va-head { flex-wrap: wrap; gap: 10px; }
+.va-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.va-tools select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); max-width: 220px; }
+.va-quick { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.rec-head-actions .btn svg { width: 15px; height: 15px; }
+
+/* ===== Tema e errët ===== */
+:root[data-theme="dark"] {
+  --bg: #0a1324; --surface: #101c33; --surface-2: #15243f; --border: #253758;
+  --text: #e5ebf6; --muted: #92a2c0;
+  --primary: #5b8fe8; --primary-dark: #3f72d0; --primary-light: #1a2c50;
+  --green: #2bc46f; --green-light: #10352a; --yellow-light: #3a3210; --yellow-dark: #f5c400;
+  --red: #f0574d; --red-light: #3d1b1b;
+  --shadow: 0 2px 12px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .b-draft, :root[data-theme="dark"] .b-viewer { background: #1d2b47; color: #a9b6cf; }
+:root[data-theme="dark"] .b-cancelled { background: #241f36; color: #a59fc0; }
+:root[data-theme="dark"] .field label, :root[data-theme="dark"] th { color: #a9b6cf; }
+:root[data-theme="dark"] .topbar h2, :root[data-theme="dark"] .page-head h1, :root[data-theme="dark"] .rec-head h1,
+:root[data-theme="dark"] .tab.active, :root[data-theme="dark"] .btn.on { color: #fff; }
+:root[data-theme="dark"] .qbar { background: #1d2b47; }
+:root[data-theme="dark"] .y0 { background: #3b4f78; }
+:root[data-theme="dark"] .toast { background: #22355c; }
+:root[data-theme="dark"] .modal-bg { background: rgba(0,0,0,.6); }
+
+/* Preferencat (profili) */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 8px 14px; border: none; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.on { background: var(--primary); color: #fff; }
+.pref-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; flex-wrap: wrap; }/* ===== Menuja e poshtme (celular) dhe kërkimi global ===== */
+.bottom-nav { display: none; }
+.gres { margin-top: 10px; display: flex; flex-direction: column; }
+.gres a { display: flex; justify-content: space-between; gap: 10px; padding: 11px 8px; border-bottom: 1px solid var(--border); color: var(--text); }
+.gres a:hover { background: var(--surface-2); }
+@media (max-width: 860px) {
+  .bottom-nav { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(7,26,58,.08); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+  .bottom-nav a, .bottom-nav button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; border: none; background: none;
+    color: var(--muted); font-size: 11px; font-weight: 600; text-decoration: none; }
+  .bottom-nav svg { width: 22px; height: 22px; padding: 4px 10px; box-sizing: content-box; border-radius: 10px; }
+  .bottom-nav .active { color: var(--primary); }
+  .bottom-nav .active svg { background: var(--primary-light); }
+  .bottom-nav .bn-ai svg { background: var(--primary); color: #fff; }
+  .content { padding: 16px 16px 90px; }
+  .topbar { padding: 0 16px; }
+  .toast { bottom: 84px; right: 16px; left: 16px; }
+}

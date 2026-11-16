@@ -17,7 +17,7 @@ router.get('/dashboard', requireRole('viewer'), (req, res) => {
   db.prepare('SELECT status, COUNT(*) c FROM executions GROUP BY status').all().forEach(r => execs[r.status] = r.c);
 
   const recent = db.prepare(`
-    SELECT r.status, r.updated_at, sub.name AS subject_name, sv.name AS service_name
+    SELECT r.status, r.updated_at, sub.id AS subject_id, sub.name AS subject_name, sv.id AS service_id, sv.name AS service_name
     FROM service_records r JOIN subjects sub ON sub.id=r.subject_id JOIN services sv ON sv.id=r.service_id
     ORDER BY r.updated_at DESC LIMIT 8
   `).all();

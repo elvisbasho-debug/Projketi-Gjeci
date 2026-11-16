@@ -11,9 +11,10 @@ const router = express.Router();
 router.get('/stats', requireRole('viewer'), (req, res) => {
   const byStatus = {};
   db.prepare('SELECT status, COUNT(*) c FROM executions GROUP BY status').all().forEach(r => byStatus[r.status] = r.c);
-  const med = db.prepare(`
-    SELECT AVG(wait_ms) w, AVG(process_ms) p FROM executions WHERE status='kryer'
-  `).get();
+  // Mediana e vërtetë (jo mesatarja) e 500 ekzekutimeve të fundit të kryera
+  const rows = db.prepare("SELECT wait_ms, process_ms FROM executions WHERE status='kryer' ORDER BY id DESC LIMIT 500").all();
+  const median = arr => { const a = arr.filter(v => v != null).sort((x, y) => x - y); if (!a.length) return 0; const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const med = { w: median(rows.map(r => r.wait_ms)), p: median(rows.map(r => r.process_ms)) };
   res.json({
     ne_radhe: byStatus['ne_radhe'] || 0,
     ne_ekzekutim: (byStatus['ne_ekzekutim'] || 0) + (byStatus['duke_riprovuar'] || 0),
@@ -39,6 +40,11 @@ router.get('/', requireRole('viewer'), (req, res) => {
   const where = [], args = [];
   if (status) { where.push('e.status = ?'); args.push(status); }
   if (serviceId) { where.push('e.service_id = ?'); args.push(serviceId); }
+  if (req.query.q) {
+    const like = '%' + req.query.q + '%';
+    where.push('(sub.name LIKE ? OR sub.nipt LIKE ? OR sv.name LIKE ? OR e.run_by LIKE ? OR e.result LIKE ?)');
+    args.push(like, like, like, like, like);
+  }
   if (where.length) sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY e.id DESC LIMIT 200';
   res.json(db.prepare(sql).all(...args));

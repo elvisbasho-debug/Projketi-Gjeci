@@ -159,6 +159,7 @@ function migrate() {
   addColumn('service_records', 'period_to', 'TEXT');
   addColumn('executions', 'action', 'TEXT');             // veprimi specifik (p.sh. 'blerjet')
   addColumn('users', 'subject_id', 'INTEGER');           // për rolin 'client': biznesi që i përket
+  addColumn('va_messages', 'subject_id', 'INTEGER');     // Pyet VA: bisedë për një subjekt
 
   db.exec(`
     /* ---------- Historiku i rezultateve për çdo rekord (për Statistika/Historik) ---------- */
