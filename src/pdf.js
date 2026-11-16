@@ -3,6 +3,7 @@
 // Gjeneron PDF nga HTML duke përdorur Chromium (Playwright).
 const { chromium } = require('playwright');
 const archiver = require('archiver');
+const { schemaFor } = require('./service-schema');
 
 async function htmlToPdf(html) {
   const browser = await chromium.launch({ args: ['--no-sandbox'] });
@@ -27,10 +28,10 @@ function docStyle() {
   return `
     <style>
       * { box-sizing: border-box; }
-      body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #1f2a44; font-size: 12px; margin: 0; }
-      .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1f6ff0; padding-bottom: 14px; margin-bottom: 18px; }
+      body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #13213a; font-size: 12px; margin: 0; }
+      .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a4fa0; padding-bottom: 14px; margin-bottom: 18px; }
       .brand { display: flex; align-items: center; gap: 8px; }
-      .brand .logo { width: 26px; height: 26px; border-radius: 6px; background: #1f6ff0; display: inline-block; position: relative; }
+      .brand .logo { width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg,#123a78,#071a3a); border-bottom: 3px solid #f5c400; display: inline-block; position: relative; }
       .brand b { font-size: 18px; }
       .muted { color: #697089; }
       h1 { font-size: 16px; margin: 0 0 2px; }
@@ -38,9 +39,9 @@ function docStyle() {
       .meta div { margin-bottom: 3px; }
       table { width: 100%; border-collapse: collapse; margin-top: 10px; }
       th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #e2e8f2; }
-      th { background: #f2f7ff; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: #42506e; }
+      th { background: #f1f5fc; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: #42506e; }
       td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-      .total-row td { font-weight: bold; border-top: 2px solid #1f6ff0; }
+      .total-row td { font-weight: bold; border-top: 2px solid #1a4fa0; }
       .foot { margin-top: 30px; font-size: 10px; color: #8a93ab; border-top: 1px solid #e2e8f2; padding-top: 10px; }
       .page { page-break-after: always; }
       .page:last-child { page-break-after: auto; }
@@ -71,15 +72,16 @@ function declarationPage(company, service, rec) {
       <div class="meta">
         <div><b>Subjekti:</b> ${esc(rec.subject_name)}</div>
         <div><b>NIPT:</b> ${esc(rec.nipt || '—')}</div>
-        <div><b>Statusi:</b> ${esc(rec.status || '—')}</div>
+        <div><b>Statusi:</b> ${esc(({ ne_pritje: 'Në pritje', kryer: 'Kryer', deshtoi: 'Dështoi', deklaruar: 'Deklaruar' })[rec.status] || rec.status || '—')}</div>
         <div><b>Data:</b> ${today}</div>
       </div>
+      ${rec.period_from || rec.period_to ? `<div class="meta"><b>Periudha:</b> ${esc(rec.period_from || '…')} – ${esc(rec.period_to || '…')}</div>` : ''}
       <table>
-        <thead><tr><th>Zëri</th><th class="num">Vlera (Lek)</th></tr></thead>
+        <thead><tr><th>Zëri</th><th class="num">Vlera</th></tr></thead>
         <tbody>
-          <tr><td>TVSH mujore</td><td class="num">${nf(d.tvsh_mujore)}</td></tr>
-          <tr><td>Kredi</td><td class="num">${nf(d.kredi)}</td></tr>
-          <tr class="total-row"><td>Totali</td><td class="num">${nf(d.totali)}</td></tr>
+          ${(schemaFor(service.code).columns.length ? schemaFor(service.code).columns : Object.keys(d).map(k => ({ key: k, label: k, type: typeof d[k] === 'number' ? 'num' : 'text' })))
+            .map(c => `<tr><td>${esc(c.label)}</td><td class="num">${d[c.key] == null ? '—' : (c.type === 'money' ? nf(d[c.key]) + ' Lek' : c.type === 'num' ? nf(d[c.key]) : esc(d[c.key]))}</td></tr>`).join('')}
+          <tr class="total-row"><td>Rezultati</td><td class="num">${esc(rec.result || '—')}</td></tr>
         </tbody>
       </table>
       <div class="foot">Gjeneruar nga Finbot më ${today}. Dokument informativ — verifikoni shifrat para deklarimit zyrtar.</div>
@@ -88,6 +90,52 @@ function declarationPage(company, service, rec) {
 
 function buildDeclarationDoc(company, service, records) {
   return `<!doctype html><html><head><meta charset="utf-8">${docStyle()}</head><body>${records.map(r => declarationPage(company, service, r)).join('')}</body></html>`;
+}
+
+// Raport statistikor: vlera mujore për 3 vite + totalet vjetore
+const MUAJT = ['Janar', 'Shkurt', 'Mars', 'Prill', 'Maj', 'Qershor', 'Korrik', 'Gusht', 'Shtator', 'Tetor', 'Nëntor', 'Dhjetor'];
+function buildStatsDoc(company, service, rec, st) {
+  const fmt = v => v == null ? '—' : nf(v);
+  return `<!doctype html><html><head><meta charset="utf-8">${docStyle()}</head><body><div class="page">
+    ${headerHtml(company)}
+    <h1>Statistika — ${esc(service.name)}</h1>
+    <div class="meta"><div><b>Subjekti:</b> ${esc(rec.subject_name)}</div><div><b>NIPT:</b> ${esc(rec.nipt || '—')}</div>
+      <div><b>Treguesi:</b> ${esc(st.metric)}${st.type === 'money' ? ' (Lek)' : ''}</div></div>
+    <table><thead><tr><th>Muaji</th>${st.years.map(y => `<th class="num">${y}</th>`).join('')}</tr></thead>
+      <tbody>${st.months.map((m, i) => `<tr><td>${MUAJT[i]}</td>${m.map(v => `<td class="num">${fmt(v)}</td>`).join('')}</tr>`).join('')}
+      <tr class="total-row"><td>Totali vjetor</td>${st.totals.map(v => `<td class="num">${nf(v)}</td>`).join('')}</tr></tbody></table>
+    <div class="foot">Gjeneruar nga Finbot më ${new Date().toISOString().slice(0, 10)}.</div>
+  </div></body></html>`;
+}
+
+// Fatura e abonimit (platforma → studio)
+function buildInvoiceDoc(issuer, org, inv) {
+  const eur = n => (Number(n) || 0).toLocaleString('sq-AL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  const status = { e_papaguar: 'E papaguar', paguar: 'Paguar', anuluar: 'Anuluar', vonuar: 'E vonuar' }[inv.display_status || inv.status] || inv.status;
+  return `<!doctype html><html><head><meta charset="utf-8">${docStyle()}</head><body><div class="page">
+    <div class="head">
+      <div class="brand"><span class="logo"></span><b>${esc(issuer.name || 'Finbot')}</b></div>
+      <div style="text-align:right" class="muted"><div>${esc(issuer.nipt || '')}</div><div>${esc(issuer.address || '')}</div><div>${esc(issuer.email || '')}</div></div>
+    </div>
+    <h1>Faturë ${esc(inv.number)}</h1>
+    <div class="muted">Abonimi në platformën Finbot për periudhën ${esc(inv.period)}</div>
+    <div class="meta" style="display:flex;justify-content:space-between;gap:20px">
+      <div><div><b>Klienti:</b> ${esc(org.name)}</div><div><b>NIPT:</b> ${esc(org.nipt || '—')}</div><div>${esc(org.address || '')}</div></div>
+      <div style="text-align:right"><div><b>Data:</b> ${esc(inv.issued_at)}</div><div><b>Afati:</b> ${esc(inv.due_date)}</div><div><b>Statusi:</b> ${esc(status)}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Përshkrimi</th><th class="num">Sasia</th><th class="num">Çmimi</th><th class="num">Vlera</th></tr></thead>
+      <tbody>
+        <tr><td>Plani ${esc(inv.plan_name)} (deri ${inv.plan_limit} biznese), ${esc(inv.period)}</td><td class="num">1</td><td class="num">${eur(inv.base_price)}</td><td class="num">${eur(inv.base_price)}</td></tr>
+        ${inv.extra ? `<tr><td>Biznese mbi kufirin (gjithsej ${inv.subjects})</td><td class="num">${inv.extra}</td><td class="num">${eur(inv.extra_price)}</td><td class="num">${eur(inv.extra * inv.extra_price)}</td></tr>` : ''}
+        <tr><td colspan="3" class="num">Vlera pa TVSH</td><td class="num">${eur(inv.subtotal)}</td></tr>
+        <tr><td colspan="3" class="num">TVSH ${Math.round(inv.vat_rate * 100)}%</td><td class="num">${eur(inv.vat)}</td></tr>
+        <tr class="total-row"><td colspan="3" class="num">Totali për t'u paguar</td><td class="num">${eur(inv.total)}</td></tr>
+      </tbody>
+    </table>
+    ${issuer.iban ? `<div class="meta"><b>Pagesa:</b> ${esc(issuer.bank || '')} · IBAN ${esc(issuer.iban)} · Përshkrimi: ${esc(inv.number)}</div>` : ''}
+    <div class="foot">Faturë e gjeneruar nga Finbot më ${esc(inv.issued_at)}.</div>
+  </div></body></html>`;
 }
 
 // Gjeneron një PDF për çdo rekord (një browser i vetëm) dhe i kthen si buffer-a.
@@ -121,4 +169,4 @@ function zipBuffers(files) {
   });
 }
 
-module.exports = { htmlToPdf, buildDeclarationDoc, recordsToPdfBuffers, zipBuffers };
+module.exports = { htmlToPdf, buildDeclarationDoc, buildStatsDoc, buildInvoiceDoc, recordsToPdfBuffers, zipBuffers };

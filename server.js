@@ -21,6 +21,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const app = express();
+app.set('trust proxy', 1); // Render/Docker: HTTPS përfundon te proxy-ja → cookie "secure" punon saktë
+app.disable('x-powered-by');
+// Header-a bazë sigurie
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
 
@@ -28,16 +38,24 @@ app.use(cookieParser());
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 // API
+// Rrugët e studios: kërkojnë një studio aktive (req.orgId) dhe të dhënat filtrohen sipas saj
+const { requireOrg } = require('./src/org');
+const studio = [requireAuth, requireOrg];
 app.use('/api/auth', require('./src/routes/auth'));
-app.use('/api/users', requireAuth, require('./src/routes/users'));
-app.use('/api/subjects', requireAuth, require('./src/routes/subjects'));
-app.use('/api/services', requireAuth, require('./src/routes/services'));
-app.use('/api/executions', requireAuth, require('./src/routes/executions'));
-app.use('/api/notifications', requireAuth, require('./src/routes/notifications'));
-app.use('/api/tickets', requireAuth, require('./src/routes/tickets'));
-app.use('/api/va', requireAuth, require('./src/routes/va'));
-app.use('/api/reports', requireAuth, require('./src/routes/reports'));
-app.use('/api/settings', requireAuth, require('./src/routes/settings'));
+app.use('/api/platform', requireAuth, require('./src/routes/platform'));   // owner + adminët: studiot, planet, adminët
+app.use('/api/users', ...studio, require('./src/routes/users'));
+app.use('/api/subjects', ...studio, require('./src/routes/subjects'));
+app.use('/api/services', ...studio, require('./src/routes/services'));
+app.use('/api/executions', ...studio, require('./src/routes/executions'));
+app.use('/api/notifications', ...studio, require('./src/routes/notifications'));
+app.use('/api/tickets', requireAuth, require('./src/routes/tickets'));    // platforma i sheh të gjitha
+app.use('/api/va', ...studio, require('./src/routes/va'));
+app.use('/api/reports', ...studio, require('./src/routes/reports'));
+app.use('/api/settings', ...studio, require('./src/routes/settings'));
+app.use('/api/client', requireAuth, require('./src/routes/client'));   // portali i klientit (TVSH në kohë reale)
+
+// C@ts i simuluar për testimin e konektorit të TVSH-së (jo në prodhim)
+if (process.env.NODE_ENV !== 'production') app.use('/mock-cats', require('./src/mock-cats'));
 
 // Frontend statik
 app.use(express.static(path.join(__dirname, 'public')));
@@ -62,4 +80,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n  Finbot po punon → http://localhost:${PORT}`);
   engine.start();
+  require('./src/billing').start();   // faturat mujore të studiove + kujtesat për të vonuarat
 });

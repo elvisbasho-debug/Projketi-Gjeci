@@ -8,7 +8,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'finbot-dev-secret-ndrysho-ne-prodh
 const TOKEN_TTL = '7d';
 
 // Hierarkia e roleve (sa më i lartë numri, aq më shumë të drejta)
-const ROLE_LEVEL = { viewer: 1, accountant: 2, admin: 3, owner: 4 };
+// client (portali i biznesit) = 0 → nuk kalon asnjë kontroll roli të studios.
+// studio_admin menaxhon studion e vet; admin/owner janë të platformës.
+const ROLE_LEVEL = { client: 0, viewer: 1, accountant: 2, studio_admin: 3, admin: 4, owner: 5 };
 
 function hashPassword(plain) {
   return bcrypt.hashSync(plain, 10);
@@ -36,7 +38,7 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'I paautorizuar' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    const user = db.prepare('SELECT id, name, email, role, status FROM users WHERE id = ?').get(payload.id);
+    const user = db.prepare('SELECT id, name, email, role, status, subject_id, org_id, active_org_id FROM users WHERE id = ?').get(payload.id);
     if (!user) return res.status(401).json({ error: 'Përdoruesi nuk ekziston' });
     if (user.status === 'suspended') return res.status(403).json({ error: 'Llogaria juaj është pezulluar' });
     req.user = user;
@@ -50,7 +52,7 @@ function requireAuth(req, res, next) {
 function requireRole(minRole) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'I paautorizuar' });
-    if ((ROLE_LEVEL[req.user.role] || 0) < (ROLE_LEVEL[minRole] || 99)) {
+    if ((ROLE_LEVEL[req.user.role] || 0) < (ROLE_LEVEL[minRole] ?? 99)) {
       return res.status(403).json({ error: 'Nuk keni të drejta të mjaftueshme' });
     }
     next();

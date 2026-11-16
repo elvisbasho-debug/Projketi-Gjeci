@@ -4,20 +4,44 @@ const express = require('express');
 const db = require('../db');
 const audit = require('../audit');
 const { verifyPassword, signToken, requireAuth, hashPassword } = require('../auth');
+const { isPlatform, orgIdOf, getOrg, planInfo } = require('../org');
 
 const router = express.Router();
+
+// Kufizim i tentativave të gabuara: 10 për IP+email në 15 minuta
+const attempts = new Map();
+const WINDOW = 15 * 60 * 1000, MAX_FAILS = 10;
+function tooMany(key) {
+  const a = attempts.get(key);
+  if (!a || a.reset < Date.now()) return false;
+  return a.n >= MAX_FAILS;
+}
+function fail(key) {
+  const a = attempts.get(key);
+  if (!a || a.reset < Date.now()) attempts.set(key, { n: 1, reset: Date.now() + WINDOW });
+  else a.n++;
+  if (attempts.size > 5000) for (const [k, v] of attempts) if (v.reset < Date.now()) attempts.delete(k);
+}
 
 // HYRJE
 router.post('/login', (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email dhe fjalëkalim të detyrueshëm' });
+  const key = `${req.ip}|${String(email).toLowerCase()}`;
+  if (tooMany(key)) return res.status(429).json({ error: 'Shumë tentativa të gabuara. Provoni përsëri pas 15 minutash.' });
 
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (!user || !verifyPassword(password, user.password_hash)) {
+    fail(key);
     return res.status(401).json({ error: 'Email ose fjalëkalim i gabuar' });
   }
+  attempts.delete(key);
   if (user.status === 'suspended') {
     return res.status(403).json({ error: 'Llogaria juaj është pezulluar. Kontaktoni administratorin.' });
+  }
+  if (user.org_id && !['owner', 'admin'].includes(user.role)) {
+    const org = db.prepare('SELECT status FROM orgs WHERE id=?').get(user.org_id);
+    if (!org || org.status !== 'active') return res.status(403).json({ error: 'Studioja juaj është e pezulluar. Kontaktoni administratorin e platformës.' });
   }
 
   db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
@@ -27,6 +51,7 @@ router.post('/login', (req, res) => {
   res.cookie('token', token, {
     httpOnly: true,
     sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production', // vetëm përmes HTTPS online
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   res.json({
@@ -44,7 +69,13 @@ router.post('/logout', requireAuth, (req, res) => {
 
 // Kush jam unë
 router.get('/me', requireAuth, (req, res) => {
-  res.json({ user: req.user });
+  const platform = isPlatform(req.user);
+  const orgId = orgIdOf(req.user);
+  const o = orgId ? getOrg(orgId) : null;
+  res.json({
+    user: req.user, platform,
+    org: o ? { id: o.id, name: o.name, status: o.status, plan: planInfo(o) } : null,
+  });
 });
 
 // Ndrysho fjalëkalimin tim
